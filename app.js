@@ -3,6 +3,7 @@
  * 
  * Handles real-time WebSocket connection, sequence gap recovery, target in-place caption
  * DOM updates (partial & final), vector canvas stroke rendering, Web Speech TTS,
+ * instant multilingual NMT translation (Hindi, Arabic, French, Spanish, Bengali, German),
  * and notes/subtitle export.
  */
 
@@ -21,9 +22,11 @@ const DEMO_SESSIONS = [
         englishText: "Welcome to today's lecture on recursion and binary search trees.",
         translations: {
           hi: "पुनरावृत्ति (recursion) और बाइनरी सर्च ट्री पर आज के व्याख्यान में आपका स्वागत है।",
+          ar: "مرحبا بكم في محاضرة اليوم حول العودية وأشجار البحث الثنائية.",
+          fr: "Bienvenue au cours d'aujourd'hui sur la récursion et les arbres de recherche binaires.",
+          es: "Bienvenidos a la clase de hoy sobre recursividad y árboles de búsqueda binaria.",
           bn: "রিকার্সন এবং বাইনারি সার্চ ট্রির আজকের লেকচারে স্বাগতম।",
-          ar: "مرحبا بكم في محاضرة اليوم حول العودية وأشجار البحث الثنائية।",
-          es: "Bienvenidos a la clase de hoy sobre recursividad y árboles de búsqueda binaria."
+          de: "Willkommen zur heutigen Vorlesung über Rekursion und binäre Suchbäume."
         },
         strokes: []
       }
@@ -40,7 +43,7 @@ class SmartClassroomStudentApp {
   constructor() {
     this.currentSessionId = "cs101-recursion";
     this.currentLecture = DEMO_SESSIONS[0];
-    this.currentLanguage = "en"; // Default to English for instant live streaming partial text
+    this.currentLanguage = "en"; // Default to English (Original)
     this.currentTime = 0;
     this.isPlaying = true;
     this.isTTSOn = false;
@@ -57,6 +60,7 @@ class SmartClassroomStudentApp {
     this.reconnectTimer = null;
     this.pingInterval = null;
     this.segmentsMap = new Map(); // Key: segmentId -> segment object
+    this.translationPendingMap = new Map(); // Key: `${segmentId}_${lang}` -> boolean
     
     // DOM Cache
     this.canvas = document.getElementById("whiteboard-canvas");
@@ -108,7 +112,7 @@ class SmartClassroomStudentApp {
 
     this.langSelect.addEventListener("change", (e) => {
       this.currentLanguage = e.target.value;
-      this.logDebug("LANG", `Language switched to: ${this.currentLanguage}`);
+      this.logDebug("LANG", `Language switched to: [${this.currentLanguage.toUpperCase()}]`);
       this.renderCaptions();
     });
 
@@ -134,6 +138,24 @@ class SmartClassroomStudentApp {
   }
 
   // =========================================================================
+  // Instant Free NMT Translation Engine (Google GTX Auto-Detect & Translate)
+  // =========================================================================
+  async fetchLiveTranslation(text, targetLang) {
+    if (!text || targetLang === "en") return text;
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data[0] && Array.isArray(data[0])) {
+        return data[0].map(item => item[0]).join("");
+      }
+    } catch (err) {
+      console.error("Live translation fetch failed:", err);
+    }
+    return text;
+  }
+
+  // =========================================================================
   // Smart Vercel & Render WebSocket Location Resolver
   // =========================================================================
   getWebSocketUrl() {
@@ -150,7 +172,6 @@ class SmartClassroomStudentApp {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${window.location.hostname}:5000?role=student&sessionId=${this.currentSessionId}`;
     } else {
-      // Production Vercel Deployment -> Connects to Render Backend WebSocket Gateway
       return `wss://smart-classroom-backend-y28y.onrender.com?role=student&sessionId=${this.currentSessionId}`;
     }
   }
@@ -292,10 +313,11 @@ class SmartClassroomStudentApp {
       seg.status = status;
     }
 
-    if (data.translatedText && this.currentLanguage !== "en") {
-      seg.translations[this.currentLanguage] = data.translatedText;
+    if (data.translatedText && data.language) {
+      seg.translations[data.language] = data.translatedText;
     }
 
+    // Instant Target In-Place DOM Mutation
     this.renderOrUpdateSingleCard(seg);
 
     if (data.timestamp) {
@@ -312,11 +334,10 @@ class SmartClassroomStudentApp {
     if (!data.stroke) return;
     this.liveStrokes.push(data.stroke);
     this.drawSingleStroke(data.stroke);
-    this.logDebug("STROKE", `Received live stroke (${data.stroke.points.length} points)`);
   }
 
   // =========================================================================
-  // Target DOM Micro-Updates (Instant In-Place Segment Mutation)
+  // Target DOM Micro-Updates & Real-Time NMT Trigger
   // =========================================================================
   renderCaptions() {
     this.captionFeed.innerHTML = "";
@@ -328,12 +349,40 @@ class SmartClassroomStudentApp {
 
   renderOrUpdateSingleCard(seg) {
     let card = document.getElementById(`card-${seg.id}`);
-    const textToDisplay = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
-      ? seg.translations[this.currentLanguage]
-      : seg.englishText;
-
-    const formattedText = this.highlightTechnicalTerms(textToDisplay);
     const timeLabel = this.formatTime(seg.startTime || 0);
+
+    // Primary Text (Spoken text)
+    const primaryText = this.highlightTechnicalTerms(seg.englishText);
+
+    // Target Language Translation Text
+    let translatedText = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
+      ? seg.translations[this.currentLanguage]
+      : "";
+
+    // Trigger Real-Time NMT Translation if student selected non-English & translation is not cached
+    if (this.currentLanguage !== "en" && !translatedText && seg.englishText) {
+      const pendingKey = `${seg.id}_${this.currentLanguage}`;
+      if (!this.translationPendingMap.has(pendingKey)) {
+        this.translationPendingMap.set(pendingKey, true);
+
+        this.fetchLiveTranslation(seg.englishText, this.currentLanguage).then(resText => {
+          seg.translations[this.currentLanguage] = resText;
+          this.translationPendingMap.delete(pendingKey);
+          
+          // Micro DOM update for translated text element
+          const targetCard = document.getElementById(`card-${seg.id}`);
+          if (targetCard) {
+            let transEl = targetCard.querySelector(".caption-text-translated");
+            if (!transEl) {
+              transEl = document.createElement("div");
+              transEl.className = "caption-text-translated";
+              targetCard.appendChild(transEl);
+            }
+            transEl.textContent = resText;
+          }
+        });
+      }
+    }
 
     if (!card) {
       card = document.createElement("div");
@@ -345,8 +394,8 @@ class SmartClassroomStudentApp {
           <span class="caption-time">⏱️ ${timeLabel}</span>
           <span class="caption-status" style="font-size:0.7rem;">${seg.status === "partial" ? "LIVE STREAMING" : "FINAL"}</span>
         </div>
-        <div class="caption-text-source">${formattedText}</div>
-        ${this.currentLanguage !== "en" && seg.translations[this.currentLanguage] ? `<div class="caption-text-translated">${seg.translations[this.currentLanguage]}</div>` : ''}
+        <div class="caption-text-source">${primaryText}</div>
+        ${this.currentLanguage !== "en" && translatedText ? `<div class="caption-text-translated">${translatedText}</div>` : ''}
       `;
 
       card.addEventListener("click", () => {
@@ -359,20 +408,25 @@ class SmartClassroomStudentApp {
     } else {
       card.className = `caption-card ${seg.status === "partial" ? "partial" : ""}`;
       const srcEl = card.querySelector(".caption-text-source");
-      if (srcEl) srcEl.innerHTML = formattedText;
+      if (srcEl) srcEl.innerHTML = primaryText;
 
       const statusEl = card.querySelector(".caption-status");
       if (statusEl) statusEl.textContent = seg.status === "partial" ? "LIVE STREAMING" : "FINAL";
 
       let transEl = card.querySelector(".caption-text-translated");
-      if (this.currentLanguage !== "en" && seg.translations[this.currentLanguage]) {
-        if (!transEl) {
-          transEl = document.createElement("div");
-          transEl.className = "caption-text-translated";
-          card.appendChild(transEl);
+      if (this.currentLanguage !== "en") {
+        if (translatedText) {
+          if (!transEl) {
+            transEl = document.createElement("div");
+            transEl.className = "caption-text-translated";
+            card.appendChild(transEl);
+          }
+          transEl.textContent = translatedText;
         }
-        transEl.textContent = seg.translations[this.currentLanguage];
+      } else if (transEl) {
+        transEl.remove();
       }
+
       this.captionFeed.scrollTop = this.captionFeed.scrollHeight;
     }
   }

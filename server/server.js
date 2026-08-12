@@ -289,38 +289,61 @@ if (WebSocketServer) {
   });
 }
 
-// Asynchronous Non-Blocking Translation Processor
+// Asynchronous Non-Blocking Multilingual NMT Translation Engine
 function processAsyncTranslation(sessionId, captionData) {
-  setTimeout(() => {
-    const text = captionData.sourceText || "";
-    
-    ["hi", "bn", "ar", "es"].forEach(lang => {
-      const translatedText = DICTIONARY[lang] && DICTIONARY[lang][text]
-        ? DICTIONARY[lang][text]
-        : `[${lang.toUpperCase()}] ${text}`;
+  const text = captionData.sourceText || "";
+  if (!text) return;
 
-      const translationEvent = {
-        type: "translation_update",
-        sessionId: sessionId,
-        segmentId: captionData.segmentId,
-        eventId: `evt-trans-${Date.now()}`,
-        sequenceNumber: ++getOrCreateSessionState(sessionId).sequenceNumber,
-        timestamp: Date.now(),
-        status: "final",
-        sourceText: text,
-        translatedText: translatedText,
-        language: lang
-      };
+  const targetLangs = ["hi", "ar", "fr", "es", "bn", "de"];
 
-      const serialized = JSON.stringify(translationEvent);
-      const state = sessionStateMap.get(sessionId);
-      if (state) {
-        state.students.forEach(client => {
-          if (client.readyState === 1) client.send(serialized);
-        });
-      }
-    });
-  }, 100);
+  targetLangs.forEach(lang => {
+    // Check if hardcoded in dictionary
+    if (DICTIONARY[lang] && DICTIONARY[lang][text]) {
+      dispatchTranslationEvent(sessionId, captionData.segmentId, text, DICTIONARY[lang][text], lang);
+      return;
+    }
+
+    // Call Google GTX NMT Service (Free Sub-100ms API)
+    const https = require('https');
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
+
+    https.get(url, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(body);
+          if (parsed && parsed[0] && Array.isArray(parsed[0])) {
+            const translatedText = parsed[0].map(item => item[0]).join("");
+            dispatchTranslationEvent(sessionId, captionData.segmentId, text, translatedText, lang);
+          }
+        } catch (e) {}
+      });
+    }).on('error', () => {});
+  });
+}
+
+function dispatchTranslationEvent(sessionId, segmentId, sourceText, translatedText, lang) {
+  const state = sessionStateMap.get(sessionId);
+  if (!state) return;
+
+  const translationEvent = {
+    type: "translation_update",
+    sessionId: sessionId,
+    segmentId: segmentId,
+    eventId: `evt-trans-${Date.now()}-${lang}`,
+    sequenceNumber: ++state.sequenceNumber,
+    timestamp: Date.now(),
+    status: "final",
+    sourceText: sourceText,
+    translatedText: translatedText,
+    language: lang
+  };
+
+  const serialized = JSON.stringify(translationEvent);
+  state.students.forEach(client => {
+    if (client.readyState === 1) client.send(serialized);
+  });
 }
 
 // Start Server
