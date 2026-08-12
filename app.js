@@ -134,14 +134,25 @@ class SmartClassroomStudentApp {
   }
 
   // =========================================================================
-  // WebSocket Core Client & Reconnection Engine
+  // Smart Vercel & Render WebSocket Location Resolver
   // =========================================================================
   getWebSocketUrl() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-      ? `${window.location.hostname}:5000`
-      : window.location.host;
-    return `${protocol}//${host}?role=student&sessionId=${this.currentSessionId}`;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("backend")) {
+      const customBackend = urlParams.get("backend");
+      const wsProto = customBackend.startsWith("https") ? "wss:" : "ws:";
+      const cleanHost = customBackend.replace("https://", "").replace("http://", "");
+      return `${wsProto}//${cleanHost}?role=student&sessionId=${this.currentSessionId}`;
+    }
+
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (isLocal) {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${window.location.hostname}:5000?role=student&sessionId=${this.currentSessionId}`;
+    } else {
+      // Production Vercel Deployment -> Connects to Render Backend WebSocket Gateway
+      return `wss://smart-classroom-backend-iueo.onrender.com?role=student&sessionId=${this.currentSessionId}`;
+    }
   }
 
   connectWebSocket() {
@@ -161,7 +172,6 @@ class SmartClassroomStudentApp {
         this.updateConnectionState("live", `LIVE: ${this.currentSessionId}`);
         this.logDebug("WS", "WebSocket connection open. Subscribing...");
         
-        // Send subscribe request with sequence number for recovery
         this.ws.send(JSON.stringify({
           type: "subscribe",
           sessionId: this.currentSessionId,
@@ -278,7 +288,6 @@ class SmartClassroomStudentApp {
       this.segmentsMap.set(segmentId, seg);
       this.currentLecture.segments.push(seg);
     } else {
-      // Instant in-place segment text update
       if (data.sourceText) seg.englishText = data.sourceText;
       seg.status = status;
     }
@@ -287,10 +296,8 @@ class SmartClassroomStudentApp {
       seg.translations[this.currentLanguage] = data.translatedText;
     }
 
-    // Instant Target In-Place DOM Mutation
     this.renderOrUpdateSingleCard(seg);
 
-    // Stage Latency Benchmark Logging
     if (data.timestamp) {
       const totalLatency = Math.max(5, receiveTimestamp - data.timestamp);
       this.logDebug("LATENCY LOG", `browserRendered for [${segmentId}] - End-to-End Latency: ${totalLatency}ms`);
@@ -329,7 +336,6 @@ class SmartClassroomStudentApp {
     const timeLabel = this.formatTime(seg.startTime || 0);
 
     if (!card) {
-      // Create new card DOM element
       card = document.createElement("div");
       card.id = `card-${seg.id}`;
       card.className = `caption-card ${seg.status === "partial" ? "partial" : ""}`;
@@ -349,9 +355,8 @@ class SmartClassroomStudentApp {
       });
 
       this.captionFeed.appendChild(card);
-      this.captionFeed.scrollTop = this.captionFeed.scrollHeight; // Fast instant scroll without animation lag
+      this.captionFeed.scrollTop = this.captionFeed.scrollHeight;
     } else {
-      // Update existing DOM card in-place (No Flickering or Duplicates)
       card.className = `caption-card ${seg.status === "partial" ? "partial" : ""}`;
       const srcEl = card.querySelector(".caption-text-source");
       if (srcEl) srcEl.innerHTML = formattedText;
@@ -398,7 +403,6 @@ class SmartClassroomStudentApp {
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
     this.renderGridBackground();
 
-    // 1. Render historical timeline strokes up to currentTime
     if (this.currentLecture && this.currentLecture.segments) {
       this.currentLecture.segments.forEach(segment => {
         if (this.currentTime < segment.startTime) return;
@@ -408,7 +412,6 @@ class SmartClassroomStudentApp {
       });
     }
 
-    // 2. ALWAYS render live teacher strokes in real-time
     if (this.liveStrokes && this.liveStrokes.length > 0) {
       this.liveStrokes.forEach(stroke => this.drawSingleStroke(stroke));
     }
