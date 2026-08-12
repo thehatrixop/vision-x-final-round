@@ -151,7 +151,7 @@ class SmartClassroomStudentApp {
       return `${protocol}//${window.location.hostname}:5000?role=student&sessionId=${this.currentSessionId}`;
     } else {
       // Production Vercel Deployment -> Connects to Render Backend WebSocket Gateway
-      return `wss://smart-classroom-backend-iueo.onrender.com?role=student&sessionId=${this.currentSessionId}`;
+      return `wss://smart-classroom-backend-y28y.onrender.com?role=student&sessionId=${this.currentSessionId}`;
     }
   }
 

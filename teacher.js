@@ -320,11 +320,22 @@ class TeacherControlPanel {
   }
 
   getWebSocketUrl() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-      ? `${window.location.hostname}:5000`
-      : window.location.host;
-    return `${protocol}//${host}?role=teacher&sessionId=${this.sessionId}`;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("backend")) {
+      const customBackend = urlParams.get("backend");
+      const wsProto = customBackend.startsWith("https") ? "wss:" : "ws:";
+      const cleanHost = customBackend.replace("https://", "").replace("http://", "");
+      return `${wsProto}//${cleanHost}?role=teacher&sessionId=${this.sessionId}`;
+    }
+
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (isLocal) {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${window.location.hostname}:5000?role=teacher&sessionId=${this.sessionId}`;
+    } else {
+      // Production Vercel Deployment -> Connects to Render Backend WebSocket Gateway
+      return `wss://smart-classroom-backend-y28y.onrender.com?role=teacher&sessionId=${this.sessionId}`;
+    }
   }
 
   connectWebSocket() {
