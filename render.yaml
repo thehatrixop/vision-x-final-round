@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: smart-classroom-backend
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: cd server && npm install
+    startCommand: node server/server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DEEPGRAM_API_KEY
+        sync: false
