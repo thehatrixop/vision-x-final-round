@@ -383,12 +383,15 @@ class SmartClassroomStudentApp {
     let card = document.getElementById(`card-${seg.id}`);
     const timeLabel = this.formatTime(seg.startTime || 0);
 
-    const primaryText = this.highlightTechnicalTerms(seg.englishText);
+    // Get active translation or fallback to raw spoken text
+    let mainDisplayText = seg.translations[this.currentLanguage] || seg.englishText;
+    const isTranslated = seg.translations[this.currentLanguage] && seg.translations[this.currentLanguage].trim() !== seg.englishText.trim();
 
-    let translatedText = seg.translations[this.currentLanguage] || "";
+    const formattedMainText = this.highlightTechnicalTerms(mainDisplayText);
+    const originalSpokenText = isTranslated ? seg.englishText : "";
 
     // Trigger Real-Time NMT Translation if translation is not cached for currentLanguage
-    if (!translatedText && seg.englishText) {
+    if (!seg.translations[this.currentLanguage] && seg.englishText) {
       const pendingKey = `${seg.id}_${this.currentLanguage}`;
       if (!this.translationPendingMap.has(pendingKey)) {
         this.translationPendingMap.set(pendingKey, true);
@@ -399,14 +402,19 @@ class SmartClassroomStudentApp {
           
           const targetCard = document.getElementById(`card-${seg.id}`);
           if (targetCard) {
-            let transEl = targetCard.querySelector(".caption-text-translated");
+            const srcEl = targetCard.querySelector(".caption-text-source");
+            const transEl = targetCard.querySelector(".caption-text-translated");
+
             if (resText && resText.trim() !== seg.englishText.trim()) {
-              if (!transEl) {
-                transEl = document.createElement("div");
-                transEl.className = "caption-text-translated";
-                targetCard.appendChild(transEl);
+              if (srcEl) srcEl.innerHTML = this.highlightTechnicalTerms(resText);
+              if (transEl) {
+                transEl.textContent = `Original Spoken: ${seg.englishText}`;
+              } else {
+                const newTrans = document.createElement("div");
+                newTrans.className = "caption-text-translated";
+                newTrans.textContent = `Original Spoken: ${seg.englishText}`;
+                targetCard.appendChild(newTrans);
               }
-              transEl.textContent = resText;
             }
 
             if (this.isTTSOn && seg.status === "final") {
@@ -427,8 +435,8 @@ class SmartClassroomStudentApp {
           <span class="caption-time">⏱️ ${timeLabel}</span>
           <span class="caption-status" style="font-size:0.7rem;">${seg.status === "partial" ? "LIVE STREAMING" : "FINAL"}</span>
         </div>
-        <div class="caption-text-source">${primaryText}</div>
-        ${translatedText && translatedText.trim() !== seg.englishText.trim() ? `<div class="caption-text-translated">${translatedText}</div>` : ''}
+        <div class="caption-text-source">${formattedMainText}</div>
+        ${originalSpokenText ? `<div class="caption-text-translated">Original Spoken: ${originalSpokenText}</div>` : ''}
       `;
 
       card.addEventListener("click", () => {
@@ -441,20 +449,20 @@ class SmartClassroomStudentApp {
     } else {
       card.className = `caption-card ${seg.status === "partial" ? "partial" : ""}`;
       const srcEl = card.querySelector(".caption-text-source");
-      if (srcEl) srcEl.innerHTML = primaryText;
+      if (srcEl) srcEl.innerHTML = formattedMainText;
 
       const statusEl = card.querySelector(".caption-status");
       if (statusEl) statusEl.textContent = seg.status === "partial" ? "LIVE STREAMING" : "FINAL";
 
       let transEl = card.querySelector(".caption-text-translated");
-      if (translatedText && translatedText.trim() !== seg.englishText.trim()) {
+      if (originalSpokenText) {
         if (!transEl) {
           transEl = document.createElement("div");
           transEl.className = "caption-text-translated";
           card.appendChild(transEl);
         }
-        transEl.textContent = translatedText;
-      } else if (transEl && (!translatedText || translatedText.trim() === seg.englishText.trim())) {
+        transEl.textContent = `Original Spoken: ${originalSpokenText}`;
+      } else if (transEl) {
         transEl.remove();
       }
 
@@ -463,7 +471,7 @@ class SmartClassroomStudentApp {
   }
 
   highlightTechnicalTerms(text) {
-    let result = text;
+    let result = text || "";
     TECHNICAL_TERMS.forEach(term => {
       const regex = new RegExp(`\\b(${term})\\b`, "gi");
       result = result.replace(regex, `<span class="term-chip">$1</span>`);
@@ -477,9 +485,8 @@ class SmartClassroomStudentApp {
   speakSegment(seg) {
     if (!this.isTTSOn || !("speechSynthesis" in window)) return;
 
-    const textToSpeak = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
-      ? seg.translations[this.currentLanguage]
-      : seg.englishText;
+    // Always speak text in the student's selected target language
+    const textToSpeak = seg.translations[this.currentLanguage] || seg.englishText;
 
     if (textToSpeak) {
       this.speakText(textToSpeak, this.currentLanguage);
@@ -492,7 +499,6 @@ class SmartClassroomStudentApp {
     const cleanText = text.replace(/<[^>]*>/g, "").trim();
     if (!cleanText) return;
 
-    // Un-pause and clear queued speech synthesis
     try {
       window.speechSynthesis.cancel();
       if (window.speechSynthesis.paused) {
@@ -507,7 +513,6 @@ class SmartClassroomStudentApp {
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 
-    // Select matched voice if available
     const voices = window.speechSynthesis.getVoices();
     if (voices && voices.length > 0) {
       const matched = voices.find(v => v.lang === langTag || v.lang.startsWith(langKey));
