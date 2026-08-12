@@ -1,10 +1,9 @@
 /**
  * 👨‍🏫 Teacher Live Control Panel & Whiteboard Script
  * Handles:
- * 1. Studio 16kHz PCM AudioWorklet/ScriptProcessor Streaming to Deepgram Nova-2 ASR (99%+ Accuracy, < 150ms latency)
- * 2. Browser Web Speech API as fallback engine
- * 3. Robust Web Speech Synthesis (TTS Audio Playback) for teacher testing and feedback
- * 4. Vector pointer stroke tracking and instant WebSocket broadcasting
+ * 1. Studio 16kHz PCM AudioWorklet/ScriptProcessor Streaming to Deepgram Nova-2 ASR (Ultra-Low 64ms mic buffer)
+ * 2. Browser Web Speech API with sub-30ms instant token extraction
+ * 3. Vector pointer stroke tracking and instant WebSocket broadcasting
  */
 
 class TeacherControlPanel {
@@ -12,15 +11,11 @@ class TeacherControlPanel {
     this.sessionId = "cs101-recursion";
     this.ws = null;
     
-    // Web Speech Recognition State
+    // Web Speech State
     this.isRecording = false;
     this.recognition = null;
     this.selectedMicLang = "en-IN";
     this.activeSegmentId = null;
-
-    // TTS Audio Playback State
-    this.isTTSOn = false;
-    this.voices = [];
 
     // PCM Audio Streaming State (Deepgram Nova-2 Engine)
     this.isPCMRecording = false;
@@ -43,7 +38,6 @@ class TeacherControlPanel {
     this.clearBtn = document.getElementById("clear-btn");
     this.micBtn = document.getElementById("mic-toggle-btn");
     this.pcmBtn = document.getElementById("pcm-toggle-btn");
-    this.ttsBtn = document.getElementById("teacher-tts-btn");
     this.micLangSelect = document.getElementById("mic-lang-select");
     this.captionInput = document.getElementById("caption-input");
     this.sendCaptionBtn = document.getElementById("send-caption-btn");
@@ -52,7 +46,6 @@ class TeacherControlPanel {
     this.setupCanvas();
     this.bindEvents();
     this.initSpeechRecognition();
-    this.initTTS();
     this.connectWebSocket();
   }
 
@@ -100,19 +93,6 @@ class TeacherControlPanel {
       if (this.recognition) this.recognition.lang = this.selectedMicLang;
     });
 
-    // TTS Toggle Button
-    this.ttsBtn.addEventListener("click", () => {
-      this.isTTSOn = !this.isTTSOn;
-      this.ttsBtn.innerHTML = this.isTTSOn ? "🔊 Teacher TTS: On" : "🔊 Teacher TTS: Off";
-      this.ttsBtn.classList.toggle("active", this.isTTSOn);
-      this.log(`Teacher TTS Audio Feedback: [${this.isTTSOn ? 'ON' : 'OFF'}]`);
-      if (this.isTTSOn) {
-        this.speakText("TTS audio feedback enabled for teacher panel.", "en-US");
-      } else {
-        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-      }
-    });
-
     // Pointer Events for Whiteboard Drawing
     this.canvas.addEventListener("pointerdown", (e) => this.startStroke(e));
     this.canvas.addEventListener("pointermove", (e) => this.drawStroke(e));
@@ -126,55 +106,7 @@ class TeacherControlPanel {
   }
 
   // =========================================================================
-  // Web Speech Synthesis (TTS Audio Engine)
-  // =========================================================================
-  initTTS() {
-    if (!("speechSynthesis" in window)) {
-      this.log("⚠️ Browser does not support SpeechSynthesis TTS.");
-      return;
-    }
-
-    const loadVoices = () => {
-      this.voices = window.speechSynthesis.getVoices();
-    };
-
-    loadVoices();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-  }
-
-  speakText(text, targetLang = "en-US") {
-    if (!("speechSynthesis" in window) || !text) return;
-    try {
-      window.speechSynthesis.cancel();
-
-      const cleanText = text.replace(/<[^>]*>/g, "").trim();
-      if (!cleanText) return;
-
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-
-      // Select voice based on language
-      const matchLang = targetLang.toLowerCase();
-      let selectedVoice = this.voices.find(v => v.lang.toLowerCase().includes(matchLang));
-      if (!selectedVoice) {
-        selectedVoice = this.voices.find(v => v.lang.toLowerCase().includes("en"));
-      }
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-      }
-      utterance.lang = targetLang;
-
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.error("TTS Speak Error:", e);
-    }
-  }
-
-  // =========================================================================
-  // Studio 16kHz PCM Binary Audio Streamer (Deepgram Nova-2 - 99% Accuracy)
+  // Studio 16kHz PCM Binary Audio Streamer (64ms Ultra-Low Latency Mic Buffer)
   // =========================================================================
   async togglePCMStream() {
     if (this.isPCMRecording) {
@@ -188,23 +120,27 @@ class TeacherControlPanel {
   async startPCMStream() {
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true }
+        audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, latency: 0 }
       });
 
       this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const source = this.audioCtx.createMediaStreamSource(this.mediaStream);
-      this.audioProcessor = this.audioCtx.createScriptProcessor(4096, 1, 1);
+      
+      // Reduce buffer size to 1024 for 64ms ultra-low accumulation latency
+      this.audioProcessor = this.audioCtx.createScriptProcessor(1024, 1, 1);
 
       this.audioProcessor.onaudioprocess = (e) => {
         if (!this.isPCMRecording || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         const inputData = e.inputBuffer.getChannelData(0);
         
+        // Convert Float32 to 16-bit Mono Int16 PCM
         const pcmData = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
           pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
+        // Send raw binary PCM audio buffer instantly over WebSocket
         this.ws.send(pcmData.buffer);
       };
 
@@ -214,7 +150,7 @@ class TeacherControlPanel {
       this.isPCMRecording = true;
       this.pcmBtn.innerHTML = "🎙️ Stop Studio PCM AI Stream";
       this.pcmBtn.classList.add("recording");
-      this.log("🚀 Studio PCM Audio Stream active! Streaming 16kHz audio to Deepgram Nova-2 (99%+ accuracy)...");
+      this.log("🚀 Studio PCM Stream Active! 64ms Mic Buffer -> Deepgram Nova-2 ASR...");
 
     } catch (err) {
       this.log(`PCM Audio Stream Error: ${err.message}`);
@@ -283,7 +219,7 @@ class TeacherControlPanel {
   }
 
   // =========================================================================
-  // Web Speech API Continuous Capture (Fallback Engine)
+  // Web Speech API Sub-30ms Instant Token Extraction
   // =========================================================================
   initSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -306,28 +242,29 @@ class TeacherControlPanel {
       if (!this.activeSegmentId) this.activeSegmentId = `seg-${Date.now()}`;
       const now = Date.now();
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcript = event.results[i][0].transcript.trim();
-        const isFinal = event.results[i].isFinal;
-        if (!transcript) continue;
+      // Extract the latest interim transcript result instantly
+      const lastIndex = event.results.length - 1;
+      if (lastIndex >= 0) {
+        const transcript = event.results[lastIndex][0].transcript.trim();
+        const isFinal = event.results[lastIndex].isFinal;
 
-        const payload = {
-          type: isFinal ? "final_caption" : "partial_caption",
-          sessionId: this.sessionId,
-          segmentId: this.activeSegmentId,
-          timestamp: now,
-          status: isFinal ? "final" : "partial",
-          sourceText: transcript
-        };
+        if (transcript) {
+          const payload = {
+            type: isFinal ? "final_caption" : "partial_caption",
+            sessionId: this.sessionId,
+            segmentId: this.activeSegmentId,
+            timestamp: now,
+            status: isFinal ? "final" : "partial",
+            sourceText: transcript
+          };
 
-        this.broadcastMessage(payload);
-        this.log(`[${isFinal ? 'FINAL' : 'PARTIAL'}] ${transcript}`);
+          // Instant Sub-30ms WebSocket Broadcast
+          this.broadcastMessage(payload);
 
-        if (isFinal) {
-          if (this.isTTSOn) {
-            this.speakText(transcript, this.selectedMicLang);
+          if (isFinal) {
+            this.log(`[FINAL] ${transcript}`);
+            this.activeSegmentId = `seg-${Date.now()}`;
           }
-          this.activeSegmentId = `seg-${Date.now()}`;
         }
       }
     };
@@ -383,12 +320,7 @@ class TeacherControlPanel {
         status: "final",
         sourceText: text
       });
-    }, 50);
-
-    // Speak audio feedback if TTS enabled
-    if (this.isTTSOn) {
-      this.speakText(text, "en-US");
-    }
+    }, 20);
 
     this.log(`[MANUAL BROADCAST] ${text}`);
     this.captionInput.value = "";

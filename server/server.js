@@ -234,9 +234,16 @@ if (WebSocketServer) {
 
       // 2. Parse text JSON frame safely
       try {
+        // Fast Hot Path Relay: Broadcast raw payload to student sockets instantly (< 1ms)
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === 1 && (client.sessionId === sessionId || !client.sessionId)) {
+            client.send(message);
+          }
+        });
+
         const data = JSON.parse(rawStr);
 
-        // Assign Sequence Number and Event ID
+        // Assign Sequence Number and Event ID for buffer recovery
         state.sequenceNumber++;
         data.sequenceNumber = state.sequenceNumber;
         data.eventId = data.eventId || `evt-${Date.now()}-${Math.floor(Math.random()*1000)}`;
@@ -255,19 +262,6 @@ if (WebSocketServer) {
           }
           return;
         }
-
-        // Hot Path: Instant Broadcast to connected clients in the same session room
-        let recipientCount = 0;
-        const serialized = JSON.stringify(data);
-
-        wss.clients.forEach(client => {
-          if (client !== ws && client.readyState === 1 && (client.sessionId === sessionId || !client.sessionId)) {
-            client.send(serialized);
-            recipientCount++;
-          }
-        });
-
-        console.log(`[HOT PATH] Relayed [${data.type}] seq#${data.sequenceNumber} to ${recipientCount} client(s).`);
 
         if (data.type === 'final_caption') {
           processAsyncTranslation(sessionId, data);

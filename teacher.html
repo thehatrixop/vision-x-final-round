@@ -36,12 +36,6 @@
       gap: 10px;
     }
 
-    .header-controls {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
     .status-badge {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.8rem;
@@ -98,15 +92,6 @@
       transition: all 0.2s ease;
     }
     button:hover { background: #38bdf8; color: #090d16; }
-
-    button.btn-tts {
-      background: #334155;
-      color: #cbd5e1;
-    }
-    button.btn-tts.active {
-      background: linear-gradient(135deg, #38bdf8, #6366f1);
-      color: #fff;
-    }
 
     button.mic-btn {
       background: linear-gradient(135deg, #10b981, #059669);
@@ -191,10 +176,7 @@
     <div class="title">
       <span>👨‍🏫</span> Teacher Live Control Panel & Whiteboard
     </div>
-    <div class="header-controls">
-      <button id="teacher-tts-btn" class="btn-tts">🔊 Teacher TTS: Off</button>
-      <div id="ws-status" class="status-badge">📡 CONNECTING...</div>
-    </div>
+    <div id="ws-status" class="status-badge">📡 CONNECTING...</div>
   </header>
 
   <div class="main-grid">
@@ -247,9 +229,9 @@
         </button>
       </div>
 
-      <div class="panel-title" style="margin-top: 5px;">💬 Manual Broadcast & TTS Test</div>
-      <textarea id="caption-input" placeholder="Type text here and click broadcast to send & test TTS playback..."></textarea>
-      <button id="send-caption-btn">📡 Broadcast & Speak Caption</button>
+      <div class="panel-title" style="margin-top: 5px;">💬 Manual Broadcast</div>
+      <textarea id="caption-input" placeholder="Type text here and click broadcast to send simulated speech captions..."></textarea>
+      <button id="send-caption-btn">📡 Broadcast Caption</button>
 
       <div class="panel-title" style="margin-top: 12px;">📜 Real-Time Broadcast Log</div>
       <div id="log-box" class="log-box">
