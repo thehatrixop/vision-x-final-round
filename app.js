@@ -39,6 +39,16 @@ const TECHNICAL_TERMS = [
   "leaf node", "pointer", "memory", "algorithm", "binary search"
 ];
 
+const TTS_LANG_MAP = {
+  hi: "hi-IN",
+  ar: "ar-SA",
+  fr: "fr-FR",
+  es: "es-ES",
+  bn: "bn-IN",
+  de: "de-DE",
+  en: "en-US"
+};
+
 class SmartClassroomStudentApp {
   constructor() {
     this.currentSessionId = "cs101-recursion";
@@ -85,6 +95,15 @@ class SmartClassroomStudentApp {
     this.loadLectureSession(this.currentLecture);
     this.connectWebSocket();
     this.startPlaybackLoop();
+    this.initVoices();
+  }
+
+  initVoices() {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
   }
 
   initCanvasSize() {
@@ -116,10 +135,22 @@ class SmartClassroomStudentApp {
       this.renderCaptions();
     });
 
+    // Optimized User-Gesture Unlocked TTS Toggle
     this.ttsBtn.addEventListener("click", () => {
       this.isTTSOn = !this.isTTSOn;
       this.ttsBtn.innerHTML = this.isTTSOn ? "🔊 TTS On" : "🔊 TTS Off";
       this.ttsBtn.classList.toggle("active", this.isTTSOn);
+
+      if (this.isTTSOn) {
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.resume();
+          this.speakText("Text to speech enabled", this.currentLanguage);
+        }
+      } else {
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+        }
+      }
     });
 
     this.playBtn.addEventListener("click", () => this.togglePlayPause());
@@ -325,6 +356,7 @@ class SmartClassroomStudentApp {
       this.logDebug("LATENCY LOG", `browserRendered for [${segmentId}] - End-to-End Latency: ${totalLatency}ms`);
     }
 
+    // Speak final captions if TTS is enabled
     if (this.isTTSOn && status === "final") {
       this.speakSegment(seg);
     }
@@ -351,15 +383,12 @@ class SmartClassroomStudentApp {
     let card = document.getElementById(`card-${seg.id}`);
     const timeLabel = this.formatTime(seg.startTime || 0);
 
-    // Primary Text (Spoken text)
     const primaryText = this.highlightTechnicalTerms(seg.englishText);
 
-    // Target Language Translation Text
     let translatedText = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
       ? seg.translations[this.currentLanguage]
       : "";
 
-    // Trigger Real-Time NMT Translation if student selected non-English & translation is not cached
     if (this.currentLanguage !== "en" && !translatedText && seg.englishText) {
       const pendingKey = `${seg.id}_${this.currentLanguage}`;
       if (!this.translationPendingMap.has(pendingKey)) {
@@ -369,7 +398,6 @@ class SmartClassroomStudentApp {
           seg.translations[this.currentLanguage] = resText;
           this.translationPendingMap.delete(pendingKey);
           
-          // Micro DOM update for translated text element
           const targetCard = document.getElementById(`card-${seg.id}`);
           if (targetCard) {
             let transEl = targetCard.querySelector(".caption-text-translated");
@@ -379,6 +407,10 @@ class SmartClassroomStudentApp {
               targetCard.appendChild(transEl);
             }
             transEl.textContent = resText;
+
+            if (this.isTTSOn && seg.status === "final") {
+              this.speakSegment(seg);
+            }
           }
         });
       }
@@ -438,6 +470,52 @@ class SmartClassroomStudentApp {
       result = result.replace(regex, `<span class="term-chip">$1</span>`);
     });
     return result;
+  }
+
+  // =========================================================================
+  // Optimized Speech Synthesis Engine (TTS)
+  // =========================================================================
+  speakSegment(seg) {
+    if (!this.isTTSOn || !("speechSynthesis" in window)) return;
+
+    const textToSpeak = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
+      ? seg.translations[this.currentLanguage]
+      : seg.englishText;
+
+    if (textToSpeak) {
+      this.speakText(textToSpeak, this.currentLanguage);
+    }
+  }
+
+  speakText(text, langKey) {
+    if (!("speechSynthesis" in window)) return;
+
+    const cleanText = text.replace(/<[^>]*>/g, "").trim();
+    if (!cleanText) return;
+
+    // Un-pause and clear queued speech synthesis
+    try {
+      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    } catch(e){}
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const langTag = TTS_LANG_MAP[langKey] || "en-US";
+    utterance.lang = langTag;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    // Select matched voice if available
+    const voices = window.speechSynthesis.getVoices();
+    if (voices && voices.length > 0) {
+      const matched = voices.find(v => v.lang === langTag || v.lang.startsWith(langKey));
+      if (matched) utterance.voice = matched;
+    }
+
+    window.speechSynthesis.speak(utterance);
   }
 
   // =========================================================================
@@ -543,45 +621,6 @@ class SmartClassroomStudentApp {
     }
 
     this.renderWhiteboardStrokes();
-  }
-
-  speakSegment(seg) {
-    if (!("speechSynthesis" in window) || !seg) return;
-    try {
-      window.speechSynthesis.cancel();
-      const text = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
-        ? seg.translations[this.currentLanguage]
-        : seg.englishText;
-
-      const cleanText = text.replace(/<[^>]*>/g, "").trim();
-      if (!cleanText) return;
-
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.0;
-
-      // Language BCP-47 Mapping
-      const langMap = {
-        hi: "hi-IN",
-        ar: "ar-SA",
-        fr: "fr-FR",
-        es: "es-ES",
-        bn: "bn-BD",
-        de: "de-DE",
-        en: "en-US"
-      };
-      const ttsLang = langMap[this.currentLanguage] || "en-US";
-      utterance.lang = ttsLang;
-
-      const voices = window.speechSynthesis.getVoices();
-      const matchVoice = voices.find(v => v.lang.toLowerCase().includes(this.currentLanguage));
-      if (matchVoice) {
-        utterance.voice = matchVoice;
-      }
-
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.error("Student TTS Error:", e);
-    }
   }
 
   // =========================================================================
