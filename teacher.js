@@ -3,7 +3,8 @@
  * Handles:
  * 1. Studio 16kHz PCM AudioWorklet/ScriptProcessor Streaming to Deepgram Nova-2 ASR (99%+ Accuracy, < 150ms latency)
  * 2. Browser Web Speech API as fallback engine
- * 3. Vector pointer stroke tracking and instant WebSocket broadcasting
+ * 3. Robust Web Speech Synthesis (TTS Audio Playback) for teacher testing and feedback
+ * 4. Vector pointer stroke tracking and instant WebSocket broadcasting
  */
 
 class TeacherControlPanel {
@@ -11,11 +12,15 @@ class TeacherControlPanel {
     this.sessionId = "cs101-recursion";
     this.ws = null;
     
-    // Web Speech State
+    // Web Speech Recognition State
     this.isRecording = false;
     this.recognition = null;
     this.selectedMicLang = "en-IN";
     this.activeSegmentId = null;
+
+    // TTS Audio Playback State
+    this.isTTSOn = false;
+    this.voices = [];
 
     // PCM Audio Streaming State (Deepgram Nova-2 Engine)
     this.isPCMRecording = false;
@@ -38,6 +43,7 @@ class TeacherControlPanel {
     this.clearBtn = document.getElementById("clear-btn");
     this.micBtn = document.getElementById("mic-toggle-btn");
     this.pcmBtn = document.getElementById("pcm-toggle-btn");
+    this.ttsBtn = document.getElementById("teacher-tts-btn");
     this.micLangSelect = document.getElementById("mic-lang-select");
     this.captionInput = document.getElementById("caption-input");
     this.sendCaptionBtn = document.getElementById("send-caption-btn");
@@ -46,6 +52,7 @@ class TeacherControlPanel {
     this.setupCanvas();
     this.bindEvents();
     this.initSpeechRecognition();
+    this.initTTS();
     this.connectWebSocket();
   }
 
@@ -93,6 +100,19 @@ class TeacherControlPanel {
       if (this.recognition) this.recognition.lang = this.selectedMicLang;
     });
 
+    // TTS Toggle Button
+    this.ttsBtn.addEventListener("click", () => {
+      this.isTTSOn = !this.isTTSOn;
+      this.ttsBtn.innerHTML = this.isTTSOn ? "🔊 Teacher TTS: On" : "🔊 Teacher TTS: Off";
+      this.ttsBtn.classList.toggle("active", this.isTTSOn);
+      this.log(`Teacher TTS Audio Feedback: [${this.isTTSOn ? 'ON' : 'OFF'}]`);
+      if (this.isTTSOn) {
+        this.speakText("TTS audio feedback enabled for teacher panel.", "en-US");
+      } else {
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      }
+    });
+
     // Pointer Events for Whiteboard Drawing
     this.canvas.addEventListener("pointerdown", (e) => this.startStroke(e));
     this.canvas.addEventListener("pointermove", (e) => this.drawStroke(e));
@@ -106,13 +126,61 @@ class TeacherControlPanel {
   }
 
   // =========================================================================
+  // Web Speech Synthesis (TTS Audio Engine)
+  // =========================================================================
+  initTTS() {
+    if (!("speechSynthesis" in window)) {
+      this.log("⚠️ Browser does not support SpeechSynthesis TTS.");
+      return;
+    }
+
+    const loadVoices = () => {
+      this.voices = window.speechSynthesis.getVoices();
+    };
+
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }
+
+  speakText(text, targetLang = "en-US") {
+    if (!("speechSynthesis" in window) || !text) return;
+    try {
+      window.speechSynthesis.cancel();
+
+      const cleanText = text.replace(/<[^>]*>/g, "").trim();
+      if (!cleanText) return;
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      // Select voice based on language
+      const matchLang = targetLang.toLowerCase();
+      let selectedVoice = this.voices.find(v => v.lang.toLowerCase().includes(matchLang));
+      if (!selectedVoice) {
+        selectedVoice = this.voices.find(v => v.lang.toLowerCase().includes("en"));
+      }
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+      utterance.lang = targetLang;
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("TTS Speak Error:", e);
+    }
+  }
+
+  // =========================================================================
   // Studio 16kHz PCM Binary Audio Streamer (Deepgram Nova-2 - 99% Accuracy)
   // =========================================================================
   async togglePCMStream() {
     if (this.isPCMRecording) {
       this.stopPCMStream();
     } else {
-      if (this.isRecording) this.toggleMicStream(); // Turn off WebSpeech fallback if running
+      if (this.isRecording) this.toggleMicStream();
       await this.startPCMStream();
     }
   }
@@ -131,14 +199,12 @@ class TeacherControlPanel {
         if (!this.isPCMRecording || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         const inputData = e.inputBuffer.getChannelData(0);
         
-        // Convert Float32 to 16-bit Mono Int16 PCM
         const pcmData = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
           pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
-        // Send raw binary PCM audio buffer over WebSocket
         this.ws.send(pcmData.buffer);
       };
 
@@ -187,7 +253,6 @@ class TeacherControlPanel {
     };
     this.currentPoints.push(pt);
 
-    // Draw locally on canvas
     const prev = this.currentPoints[this.currentPoints.length - 2];
     this.ctx.beginPath();
     this.ctx.strokeStyle = this.currentColor;
@@ -258,7 +323,12 @@ class TeacherControlPanel {
         this.broadcastMessage(payload);
         this.log(`[${isFinal ? 'FINAL' : 'PARTIAL'}] ${transcript}`);
 
-        if (isFinal) this.activeSegmentId = `seg-${Date.now()}`;
+        if (isFinal) {
+          if (this.isTTSOn) {
+            this.speakText(transcript, this.selectedMicLang);
+          }
+          this.activeSegmentId = `seg-${Date.now()}`;
+        }
       }
     };
 
@@ -315,6 +385,11 @@ class TeacherControlPanel {
       });
     }, 50);
 
+    // Speak audio feedback if TTS enabled
+    if (this.isTTSOn) {
+      this.speakText(text, "en-US");
+    }
+
     this.log(`[MANUAL BROADCAST] ${text}`);
     this.captionInput.value = "";
   }
@@ -333,7 +408,6 @@ class TeacherControlPanel {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${window.location.hostname}:5000?role=teacher&sessionId=${this.sessionId}`;
     } else {
-      // Production Vercel Deployment -> Connects to Render Backend WebSocket Gateway
       return `wss://smart-classroom-backend-y28y.onrender.com?role=teacher&sessionId=${this.sessionId}`;
     }
   }

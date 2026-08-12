@@ -546,15 +546,42 @@ class SmartClassroomStudentApp {
   }
 
   speakSegment(seg) {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const text = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
-      ? seg.translations[this.currentLanguage]
-      : seg.englishText;
+    if (!("speechSynthesis" in window) || !seg) return;
+    try {
+      window.speechSynthesis.cancel();
+      const text = (this.currentLanguage !== "en" && seg.translations[this.currentLanguage])
+        ? seg.translations[this.currentLanguage]
+        : seg.englishText;
 
-    const utterance = new SpeechSynthesisUtterance(text.replace(/<[^>]*>/g, ""));
-    utterance.rate = 1.0;
-    window.speechSynthesis.speak(utterance);
+      const cleanText = text.replace(/<[^>]*>/g, "").trim();
+      if (!cleanText) return;
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.0;
+
+      // Language BCP-47 Mapping
+      const langMap = {
+        hi: "hi-IN",
+        ar: "ar-SA",
+        fr: "fr-FR",
+        es: "es-ES",
+        bn: "bn-BD",
+        de: "de-DE",
+        en: "en-US"
+      };
+      const ttsLang = langMap[this.currentLanguage] || "en-US";
+      utterance.lang = ttsLang;
+
+      const voices = window.speechSynthesis.getVoices();
+      const matchVoice = voices.find(v => v.lang.toLowerCase().includes(this.currentLanguage));
+      if (matchVoice) {
+        utterance.voice = matchVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Student TTS Error:", e);
+    }
   }
 
   // =========================================================================
