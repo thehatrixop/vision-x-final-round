@@ -25,6 +25,11 @@ class TeacherControlPanel {
 
     // Drawing State
     this.isDrawing = false;
+    this.strokes = [];
+    try {
+      const saved = localStorage.getItem(`smart_room_strokes_${this.sessionId}`);
+      if (saved) this.strokes = JSON.parse(saved);
+    } catch (e) {}
     this.currentPoints = [];
     this.currentColor = "#38bdf8";
     this.currentSize = 4;
@@ -51,11 +56,18 @@ class TeacherControlPanel {
 
   setupCanvas() {
     const rect = this.canvas.parentElement.getBoundingClientRect();
-    this.canvas.width = rect.width || 800;
-    this.canvas.height = 450;
+    const width = rect.width || 800;
+    const height = Math.round(width * (9 / 16));
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
     this.ctx.lineCap = "round";
     this.ctx.lineJoin = "round";
     this.renderGridBackground();
+    if (this.strokes && this.strokes.length > 0) {
+      this.strokes.forEach(s => this.drawSingleStroke(s));
+    }
   }
 
   renderGridBackground() {
@@ -82,6 +94,10 @@ class TeacherControlPanel {
     this.sizePicker.addEventListener("change", (e) => this.currentSize = parseInt(e.target.value));
 
     this.clearBtn.addEventListener("click", () => {
+      this.strokes = [];
+      try {
+        localStorage.removeItem(`smart_room_strokes_${this.sessionId}`);
+      } catch (e) {}
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       this.renderGridBackground();
       this.broadcastMessage({ type: "clear_canvas", sessionId: this.sessionId });
@@ -174,8 +190,8 @@ class TeacherControlPanel {
     this.isDrawing = true;
     const rect = this.canvas.getBoundingClientRect();
     const pt = {
-      x: (e.clientX - rect.left) / this.canvas.width,
-      y: (e.clientY - rect.top) / this.canvas.height
+      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
     };
     this.currentPoints = [pt];
   }
@@ -184,8 +200,8 @@ class TeacherControlPanel {
     if (!this.isDrawing) return;
     const rect = this.canvas.getBoundingClientRect();
     const pt = {
-      x: (e.clientX - rect.left) / this.canvas.width,
-      y: (e.clientY - rect.top) / this.canvas.height
+      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
     };
     this.currentPoints.push(pt);
 
@@ -193,9 +209,21 @@ class TeacherControlPanel {
     this.ctx.beginPath();
     this.ctx.strokeStyle = this.currentColor;
     this.ctx.lineWidth = this.currentSize;
+    this.ctx.lineCap = "round";
+    this.ctx.lineJoin = "round";
     this.ctx.moveTo(prev.x * this.canvas.width, prev.y * this.canvas.height);
     this.ctx.lineTo(pt.x * this.canvas.width, pt.y * this.canvas.height);
     this.ctx.stroke();
+
+    // Stream live stroke segment to students in real-time
+    this.broadcastMessage({
+      type: "stroke_segment",
+      sessionId: this.sessionId,
+      color: this.currentColor,
+      size: this.currentSize,
+      p1: prev,
+      p2: pt
+    });
   }
 
   endStroke() {
@@ -208,6 +236,11 @@ class TeacherControlPanel {
         size: this.currentSize,
         points: this.currentPoints
       };
+      if (!this.strokes) this.strokes = [];
+      this.strokes.push(strokeObj);
+      try {
+        localStorage.setItem(`smart_room_strokes_${this.sessionId}`, JSON.stringify(this.strokes));
+      } catch (e) {}
 
       this.broadcastMessage({
         type: "stroke",
@@ -216,6 +249,22 @@ class TeacherControlPanel {
       });
     }
     this.currentPoints = [];
+  }
+
+  drawSingleStroke(stroke) {
+    if (!stroke || !stroke.points || stroke.points.length < 2) return;
+    this.ctx.beginPath();
+    this.ctx.strokeStyle = stroke.color || "#38bdf8";
+    this.ctx.lineWidth = stroke.size || 4;
+    this.ctx.lineCap = "round";
+    this.ctx.lineJoin = "round";
+    stroke.points.forEach((p, idx) => {
+      const x = p.x * this.canvas.width;
+      const y = p.y * this.canvas.height;
+      if (idx === 0) this.ctx.moveTo(x, y);
+      else this.ctx.lineTo(x, y);
+    });
+    this.ctx.stroke();
   }
 
   // =========================================================================
@@ -353,6 +402,29 @@ class TeacherControlPanel {
       this.statusEl.textContent = "📡 LIVE BROADCASTING";
       this.statusEl.style.color = "#10b981";
       this.log("WebSocket connected. Teacher ready to stream.");
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'stroke' && data.stroke) {
+          if (!this.strokes) this.strokes = [];
+          if (!this.strokes.some(s => s.id && s.id === data.stroke.id)) {
+            this.strokes.push(data.stroke);
+            try {
+              localStorage.setItem(`smart_room_strokes_${this.sessionId}`, JSON.stringify(this.strokes));
+            } catch (e) {}
+            this.drawSingleStroke(data.stroke);
+          }
+        } else if (data.type === 'clear_canvas') {
+          this.strokes = [];
+          try {
+            localStorage.removeItem(`smart_room_strokes_${this.sessionId}`);
+          } catch (e) {}
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+          this.renderGridBackground();
+        }
+      } catch (err) {}
     };
 
     this.ws.onclose = () => {

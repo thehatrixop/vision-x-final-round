@@ -176,7 +176,13 @@
     <div class="title">
       <span>👨‍🏫</span> Teacher Live Control Panel & Whiteboard
     </div>
-    <div id="ws-status" class="status-badge">📡 CONNECTING...</div>
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <div id="ws-status" class="status-badge">📡 CONNECTING...</div>
+      <div class="status-badge" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.3); color: #10b981;">
+        <span>👤 </span><span id="teacher-name">Teacher</span>
+      </div>
+      <button style="background: rgba(244, 63, 94, 0.2); border: 1px solid rgba(244, 63, 94, 0.4); color: #f43f5e;" onclick="logoutTeacher()">Logout</button>
+    </div>
   </header>
 
   <div class="main-grid">
@@ -241,5 +247,23 @@
   </div>
 
   <script src="teacher.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const stored = localStorage.getItem('smart_user');
+      if (stored) {
+        try {
+          const u = JSON.parse(stored);
+          document.getElementById('teacher-name').innerText = u.name || u.email || 'Teacher';
+        } catch (e) {}
+      } else {
+        document.getElementById('teacher-name').innerText = 'Teacher (Faculty)';
+      }
+    });
+
+    function logoutTeacher() {
+      localStorage.removeItem('smart_user');
+      window.location.href = '/';
+    }
+  </script>
 </body>
 </html>

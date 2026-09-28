@@ -79,13 +79,124 @@ const DICTIONARY = {
   }
 };
 
+// User Authentication & Persistence Store
+const USERS_FILE = path.join(__dirname, 'users.json');
+
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error("Error reading users.json:", e.message);
+  }
+  return [];
+}
+
+function saveUsers(users) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (e) {
+    console.error("Error writing users.json:", e.message);
+  }
+}
+
 // Express App Setup
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve static frontend files (index.html, style.css, app.js, teacher.html, teacher.js)
+// Routes for Frontend HTML pages
+app.get('/', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
+
+app.get('/student', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'student.html'));
+});
+
+app.get('/teacher', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'teacher.html'));
+});
+
+// Serve static assets (js, css, images, etc.)
 app.use(express.static(PUBLIC_DIR));
+
+// Auth REST API Endpoints
+app.post('/api/signup', (req, res) => {
+  const { name, email, password, role, code } = req.body;
+  if (!name || !email || !password || !role || !code) {
+    return res.status(400).json({ success: false, message: 'All fields are required.' });
+  }
+
+  const cleanRole = role.toLowerCase().trim();
+  const cleanCode = code.trim();
+
+  // Validate One-Time Secret Codes
+  if (cleanRole === 'student') {
+    if (cleanCode.toUpperCase() !== 'CSJMU') {
+      return res.status(400).json({ success: false, message: 'Invalid Student Access Code! Code "CSJMU" is required for student registration.' });
+    }
+  } else if (cleanRole === 'teacher') {
+    if (cleanCode.toLowerCase().replace(/\s+/g, ' ') !== 'faculty 2026') {
+      return res.status(400).json({ success: false, message: 'Invalid Teacher Access Code! Code "faculty 2026" is required for teacher registration.' });
+    }
+  } else {
+    return res.status(400).json({ success: false, message: 'Invalid role specified.' });
+  }
+
+  const users = loadUsers();
+  const existing = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
+  if (existing) {
+    return res.status(400).json({ success: false, message: 'An account with this email already exists. Please log in.' });
+  }
+
+  const newUser = {
+    id: `usr-${Date.now()}`,
+    name: name.trim(),
+    email: email.trim().toLowerCase(),
+    password: password,
+    role: cleanRole,
+    createdAt: Date.now()
+  };
+
+  users.push(newUser);
+  saveUsers(users);
+
+  const redirectUrl = cleanRole === 'teacher' ? '/teacher' : '/student';
+  return res.json({
+    success: true,
+    message: 'Registration successful! Redirecting...',
+    user: { id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role },
+    redirectUrl
+  });
+});
+
+app.post('/api/login', (req, res) => {
+  const { email, password, role } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: 'Email and password are required.' });
+  }
+
+  const users = loadUsers();
+  const user = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password);
+
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+  }
+
+  if (role && user.role !== role.toLowerCase().trim()) {
+    return res.status(400).json({ success: false, message: `Account registered as ${user.role.toUpperCase()}, not as ${role.toUpperCase()}. Please switch tabs.` });
+  }
+
+  const redirectUrl = user.role === 'teacher' ? '/teacher' : '/student';
+  return res.json({
+    success: true,
+    message: 'Login successful! Redirecting...',
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    redirectUrl
+  });
+});
 
 // REST API Endpoints
 app.get('/api/sessions', (req, res) => res.json({ success: true, sessions }));
@@ -207,9 +318,9 @@ if (WebSocketServer) {
       currentSequenceNumber: state.sequenceNumber
     }));
 
-    // Send buffered events so new students instantly see current live whiteboard & captions
-    if (role === 'student' && state.eventBuffer.length > 0) {
-      console.log(`[ROOM SYNC] Pushing ${state.eventBuffer.length} past events to newly connected student.`);
+    // Send buffered events so connected clients (student or teacher on refresh) instantly see current live whiteboard & captions
+    if (state.eventBuffer.length > 0) {
+      console.log(`[ROOM SYNC] Pushing ${state.eventBuffer.length} past events to newly connected ${role}.`);
       state.eventBuffer.forEach(evt => ws.send(JSON.stringify(evt)));
     }
 
@@ -243,15 +354,25 @@ if (WebSocketServer) {
 
         const data = JSON.parse(rawStr);
 
-        // Assign Sequence Number and Event ID for buffer recovery
-        state.sequenceNumber++;
-        data.sequenceNumber = state.sequenceNumber;
-        data.eventId = data.eventId || `evt-${Date.now()}-${Math.floor(Math.random()*1000)}`;
-        data.sessionId = sessionId;
+        // Only buffer persistent room events (complete strokes, canvas clears, captions)
+        const isBufferableEvent = (
+          data.type === 'stroke' ||
+          data.type === 'clear_canvas' ||
+          data.type === 'final_caption' ||
+          data.type === 'partial_caption' ||
+          data.type === 'translation_update'
+        );
 
-        // Store in Circular Buffer (max 500 events)
-        state.eventBuffer.push(data);
-        if (state.eventBuffer.length > 500) state.eventBuffer.shift();
+        if (isBufferableEvent) {
+          state.sequenceNumber++;
+          data.sequenceNumber = state.sequenceNumber;
+          data.eventId = data.eventId || `evt-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+          data.sessionId = sessionId;
+
+          // Store in Circular Buffer (max 1000 persistent events)
+          state.eventBuffer.push(data);
+          if (state.eventBuffer.length > 1000) state.eventBuffer.shift();
+        }
 
         // Handle Reconnection Gap Recovery Request
         if (data.type === 'subscribe' && data.lastSequenceNumber !== undefined && data.lastSequenceNumber > 0) {

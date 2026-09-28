@@ -1,244 +1,179 @@
-# 🧠 Smart Classroom 2.0 — Web-Based Low-Latency Live Platform Architecture
+# 🧠 Smart Classroom — Complete Architecture & System Specification (`brain.md`)
 
-## 1. Executive Summary & Vision
-This document defines the comprehensive architecture and implementation blueprint for **Smart Classroom 2.0**, a pure web-based real-time learning platform. The system delivers **YouTube-style live partial captions** (< 150–300 ms latency), real-time vector whiteboard drawing synchronization, instant multilingual translation with technical term preservation, interactive playback scrubbing, and fault-tolerant reconnection recovery.
-
-> **Core Constraint**: The solution must be built **entirely as a web application** (HTML5, CSS3, JavaScript, Web Audio API, WebSockets/WebRTC, Web Speech API). No native desktop or mobile binaries are required.
+This document serves as the **single source of truth (`brain.md`)** for the entire **Smart Classroom Multilingual Assistant & Real-Time Sync System**. It outlines the complete system architecture, data models, WebSocket protocols, streaming pipeline, frontend DOM micro-update engine, and deployment setup.
 
 ---
 
-## 2. Problem Statement & Latency Analysis
+## 📐 1. System Overview & Technology Stack
 
-### Current Bottlenecks in Package-Based Architecture
-In traditional sentence-based or chunk-based audio pipelines:
-1. **Accumulation Delay**: The system waits for a teacher to stop speaking or for audio buffers (2–5 seconds) to fill before starting processing.
-2. **Sequential Blocking Pipeline**: Audio Capture → File Upload → ASR Inference → Translation → Database Write → Client Polling. Total latency exceeds **3,000ms – 6,000ms**.
-3. **UI Duplication & Flickering**: Polling leads to redundant DOM updates or duplicated caption cards.
-
-### Target Experience
-- **Sub-300ms Partial Captions**: Words appear on student screens instantly as the teacher speaks.
-- **In-Place Segment Mutation**: Interim partial text updates smooth out into final translated captions under the same `segmentId` without creating new UI elements.
-- **Zero-Block Rendering**: Database writes, translation, and term extraction execute asynchronously outside the hot live delivery path.
+| Layer | Technology | Primary Function |
+| :--- | :--- | :--- |
+| **Teacher App** | Android (Kotlin / Java) | Micro-chunk audio recording (100–250ms PCM), canvas vector stroke capture. |
+| **Student Web App** | HTML5, Vanilla JavaScript, CSS3 | Low-latency streaming partial/final captions, vector canvas replay, Web Speech TTS, term chips. |
+| **Backend Server** | Node.js, `ws` (WebSockets), HTTP REST | Persistent session gateway, ASR frame forwarding, async translation, sequence buffer recovery. |
+| **Streaming ASR** | Deepgram WebSocket API / Mock Engine | Real-time speech recognition generating interim partials & final transcripts. |
+| **Translation Engine** | Google GT-X NMT / MyMemory API | Async non-blocking translation with technical term preservation. |
+| **Deployment Platform** | Render (`render.yaml`) | Node.js Web Service hosting WebSocket gateway & REST APIs. |
 
 ---
 
-## 3. Comprehensive Comparison of Architectural Approaches
-
-Since **building the website is the ONLY option**, all approaches below leverage modern browser capabilities and web backend infrastructure.
-
-| Metric / Feature | **Approach 1: Native Web Speech API + WS Relay** | **Approach 2: Web Audio PCM Stream + Cloud AI** | **Approach 3: WebRTC P2P + WASM STT** | **Approach 4: Hybrid Dual-Engine (Recommended)** |
-| :--- | :--- | :--- | :--- | :--- |
-| **STT Location** | Client Browser (Teacher) | Cloud Server (Deepgram / Whisper) | Browser Web Worker (WASM) | Browser Native + Cloud Fallback |
-| **Audio Transport** | Browser Internal -> Events | PCM Float32 ArrayBuffer over WS | WebRTC MediaStream (UDP) | Events / PCM AudioWorklet |
-| **First Token Latency** | **< 100 ms** | **250 – 400 ms** | **150 – 300 ms** | **< 100 ms (Primary)** |
-| **Browser Compatibility** | Chrome, Edge, Safari (iOS 14.5+) | 100% All Modern Browsers | Modern WebRTC Browsers | 100% (Graceful Fallback) |
-| **Server AI Costs** | **$0 / month** | Per-minute API cost | $0 / month | Minimal (Only for fallback) |
-| **Teacher Hardware Req.** | Low | Low | High (GPU/CPU for WASM) | Low |
-
----
-
-## 4. Detailed Evaluation of Architectural Approaches
-
-### Approach 1: Client-Side Web Speech API with Real-Time WebSocket Relay
-- **How it works**: The Teacher Web App uses the browser-native `webkitSpeechRecognition` API with `continuous = true` and `interimResults = true`. As interim speech tokens arrive, the teacher app immediately broadcasts `partial_caption` JSON frames over a persistent WebSocket. When the engine fires `onresult` with `isFinal = true`, a `final_caption` event is dispatched.
-- **Pros**: Zero backend AI inference cost, sub-100ms token generation, extremely fast client rendering.
-- **Cons**: Speech recognition accuracy relies on client browser engine (Google Chrome/Edge provide highest accuracy).
-
-### Approach 2: Browser AudioWorklet PCM Audio Streaming to Cloud STT Gateway
-- **How it works**: The Teacher Web App captures raw microphone input using `AudioWorkletNode` (16kHz 16-bit Mono PCM). It sends binary `ArrayBuffer` audio frames (100–200ms) over WebSocket to a Node.js backend gateway. The gateway pipes streams into Deepgram/AssemblyAI Live WebSockets, which stream back partial and final transcripts to student clients.
-- **Pros**: 100% browser-agnostic, uniform high accuracy across all devices.
-- **Cons**: Recurring cloud API costs, additional network round-trip overhead (+150ms).
-
-### Approach 3: WebRTC Peer-to-Peer Streaming with On-Device WASM Speech Recognition
-- **How it works**: Direct WebRTC DataChannels and MediaStreams established between teacher and students. Teacher browser runs `whisper.cpp` compiled to WebAssembly inside a Web Worker.
-- **Pros**: Direct P2P data flow, serverless captioning, ultra-low peer-to-peer streaming latency.
-- **Cons**: High client CPU utilization; scaling to 100+ students requires a WebRTC Selective Forwarding Unit (SFU).
-
-### Approach 4: Recommended Blueprint — Hybrid Web-Native Low-Latency Platform
-- **Selected Solution**: Combines **Approach 1** for primary ultra-low latency (<100ms) with a WebSocket backend gateway that handles sequence numbering, room broadcasting, asynchronous translation, technical term preservation, and persistence.
-- **Fallback**: Includes AudioWorklet PCM streaming to backend ASR for browsers lacking native `SpeechRecognition`.
-
----
-
-## 5. System Architecture & Components
+## 📁 2. Complete Repository Directory Structure
 
 ```
- ┌────────────────────────┐         ┌─────────────────────────────────┐         ┌────────────────────────┐
- │   Teacher Web App      │         │     Backend Gateway Server      │         │   Student Web App      │
- │  (Browser Platform)    │         │  (Node.js / Express / WS)       │         │  (Browser Platform)    │
- └───────────┬────────────┘         └────────────────┬────────────────┘         └───────────┬────────────┘
-             │                                       │                                      │
-   1. Live Speech Capture                   2. Broadcast Hot-Path                 3. In-Place DOM Render
-   2. Vector Canvas Strokes ───────────────►  - Sequence Numbering  ─────────────►  - Segment ID Mutator
-      (JSON / Binary WS)                     - Room Broadcasting                    - Web Speech TTS
-                                                     │                              - Live Replay Sync
-                                                     ▼
-                                            4. Async Cold-Path
-                                              - Translation API
-                                              - Term Preservation
-                                              - DB Persistence
+d:\prograamming\bobhacks\
+├── brain.md                  # 🧠 Master System Architecture & Reference Specification
+├── app.js                    # 🌐 Student Web App Core Logic & WebSocket Engine (Vanilla JS)
+├── index.html                 # 🖥️ Student Web App Main Split-Screen UI Layout
+├── style.css                 # 🎨 Glassmorphism Design System & Streaming CSS Utilities
+├── teacher.html              # 👨‍🏫 Teacher Live Whiteboard & Caption Control Simulator
+├── lectures.js               # 📚 Demo Recorded Sessions Data Store
+├── package.json              # 📦 Root Package Configuration
+├── render.yaml               # ☁️ Render Cloud Deployment Manifest & Environment Declarations
+├── .gitignore                # 🙈 Git Exclusion Rules
+│
+└── server/                   # ⚙️ Render Backend Server Module
+    ├── server.js             # 📡 Persistent WebSocket Gateway, Streaming ASR & REST Server
+    ├── package.json          # 📦 Backend Node Dependencies (ws)
+    ├── package-lock.json     # 🔒 Locked Dependency Tree
+    ├── test-client.js        # 🧪 Realtime Pipeline Integration Test Suite
+    └── README.md             # 📖 Backend Documentation
 ```
-
-### Component Breakdown
-
-#### A. Teacher Web App (`teacher.html` / `teacher.js`)
-- **Live Whiteboard Canvas**: Tracks pointer events (`pointerdown`, `pointermove`, `pointerup`), normalizes coordinates, and emits vector stroke deltas throttled to 60 FPS.
-- **Streaming Speech Capture**: Continuous Web Speech API engine delivering `interimResults` every 100–200ms.
-- **Control Panel**: Live broadcast status, session selector, clear canvas action, and real-time broadcast log.
-
-#### B. Backend Realtime Gateway (`server/server.js`)
-- **WebSocket Server (`ws`)**: Manages client rooms (`role=teacher`, `role=student`, `sessionId`).
-- **Hot Path**: Relays incoming `partial_caption`, `final_caption`, and `stroke` events instantly (<10ms server processing). Assigns monotonically increasing `sequenceNumber` and `eventId`.
-- **Cold Path (Async Pipeline)**:
-  - **Translation Engine**: Translates finalized captions into target languages (Hindi, Bengali, Arabic, Spanish).
-  - **Technical Term Preserver**: Protects domain keywords (e.g., `recursion`, `binary search tree`, `call stack`) from invalid translation.
-  - **Session Persistence**: Appends sessions and segments to `sessions.json` or database asynchronously.
-
-#### C. Student Web App (`index.html` / `app.js` / `style.css`)
-- **Caption Stream Manager**: Maintains an in-memory Map of active segments keyed by `segmentId`.
-- **Canvas Renderer**: Re-draws vector strokes progressively, maintaining sync with live or recorded scrub time.
-- **Connection Health Controller**: Manages state transitions (`CONNECTING`, `LIVE`, `RECONNECTING`, `OFFLINE`), exponential backoff reconnection, heartbeat ping/pong, and missed event recovery.
 
 ---
 
-## 6. Real-Time Event Protocol & Data Schemas
+## 🔄 3. End-to-End Real-Time Pipeline Architecture
 
-All real-time messages transmitted over WebSocket adhere to the standard envelope below.
+```
+[ Teacher App (Android) ]
+     │
+     ├─► (Text Frame): audio_start { sessionId: "3899", encoding: "pcm_16bit", sampleRate: 16000 }
+     ├─► (Binary PCM Frames): 100–250ms raw audio bytes
+     └─► (Text Frame): stroke_event { stroke: { points, color, size } }
+         │
+         ▼
+[ Render Node.js WebSocket Gateway (server/server.js) ]
+     │
+     ├───► [ Direct Binary Forwarding ] ──► [ Streaming ASR Engine (Deepgram WebSocket) ]
+     │                                                    │
+     │                                            (Interim & Final Transcripts)
+     │                                                    │
+     ├◄───────────────────────────────────────────────────┘
+     │
+     ├───► [ 1. Broadcast partial_caption IMMEDIATELY ] ───► [ Student Web Apps ] (Sub-second lag)
+     │
+     ├───► [ 2. Broadcast final_caption (same segmentId) ] ─► [ Student Web Apps ] (In-place update)
+     │
+     ├───► [ 3. Async Non-Blocking Task Queue ]
+     │         ├──► Process Translation (Google GT-X) ──► Broadcast translation_update
+     │         └──► Debounced Disk Write (3s) ──────────► sessions.json
+     │
+     └───► [ 4. Sequence Event Buffer ] ─────────────────► Missed Event Recovery on Reconnect
+```
 
-### 1. Partial Caption Event (`partial_caption`)
+---
+
+## 📦 4. Event Schemas & WebSocket Protocol
+
+All WebSocket text messages follow a standardized JSON envelope structure:
+
 ```json
 {
-  "type": "partial_caption",
-  "sessionId": "cs101-recursion",
-  "segmentId": "seg-1723490000-001",
-  "eventId": "evt-89102",
-  "sequenceNumber": 1042,
-  "timestamp": 1723490015200,
-  "status": "partial",
-  "sourceText": "Today we will study binary search",
-  "translatedText": "",
-  "payload": {
-    "confidence": 0.88,
-    "isFinal": false
-  }
+  "type": "audio_start | partial_caption | final_caption | translation_update | stroke_event | clear_canvas | heartbeat | subscribe | pong",
+  "sessionId": "3899",
+  "segmentId": "seg-171800100",
+  "eventId": "evt-98765",
+  "sequenceNumber": 104,
+  "timestamp": 1718001000000,
+  "status": "partial | final",
+  "sourceText": "Welcome to today's lecture on recursion.",
+  "translatedText": "पुनरावृत्ति (recursion) पर आज के व्याख्यान में आपका स्वागत है।",
+  "payload": {}
 }
 ```
 
-### 2. Final Caption Event (`final_caption`)
-```json
-{
-  "type": "final_caption",
-  "sessionId": "cs101-recursion",
-  "segmentId": "seg-1723490000-001",
-  "eventId": "evt-89103",
-  "sequenceNumber": 1043,
-  "timestamp": 1723490016500,
-  "status": "final",
-  "sourceText": "Today we will study binary search trees and base cases.",
-  "translatedText": "आज हम बाइनरी सर्च ट्री और बेस केसेज का अध्ययन करेंगे।",
-  "payload": {
-    "confidence": 0.98,
-    "isFinal": true,
-    "preservedTerms": ["binary search trees", "base cases"]
-  }
-}
-```
+### Event Specifications
 
-### 3. Whiteboard Vector Stroke Event (`stroke`)
-```json
-{
-  "type": "stroke",
-  "sessionId": "cs101-recursion",
-  "eventId": "evt-89104",
-  "sequenceNumber": 1044,
-  "timestamp": 1723490016600,
-  "stroke": {
-    "id": "strk-5501",
-    "color": "#38bdf8",
-    "size": 3,
-    "points": [
-      { "x": 0.25, "y": 0.30 },
-      { "x": 0.26, "y": 0.32 }
-    ]
-  }
-}
-```
+1. **`audio_start`** (Teacher -> Server):
+   - Initiates streaming ASR session.
+   - Payload: `{ encoding: "pcm_16bit", sampleRate: 16000, channels: 1 }`.
 
-### 4. Sequence Recovery Request (`recover_events`)
-```json
-{
-  "type": "recover_events",
-  "sessionId": "cs101-recursion",
-  "lastSequenceNumber": 1041
-}
+2. **`partial_caption`** (Server -> Students):
+   - Broadcast **immediately** upon receiving ASR interim results.
+   - `status: "partial"`. Sub-second latency. Rendered in italic streaming style (`.caption-card.partial`).
+
+3. **`final_caption`** (Server -> Students):
+   - Broadcast when ASR detects end of utterance.
+   - Contains the **SAME `segmentId`** as preceding partial captions.
+   - Replaces partial text in-place without creating duplicate cards.
+
+4. **`translation_update`** (Server -> Students):
+   - Broadcast asynchronously after translation completes.
+   - Contains the **SAME `segmentId`** as final caption. Updates translated text in-place.
+
+5. **`stroke_event`** (Teacher <-> Server <-> Students):
+   - Contains vector points `[[x1, y1], [x2, y2], ...]`, stroke color, and width.
+   - Rendered on HTML5 canvas in real time.
+
+6. **`subscribe`** (Student -> Server):
+   - Sent upon WebSocket `onopen`: `{ type: "subscribe", sessionId: "3899", lastSequenceNumber: 102 }`.
+   - Server replays missed events where `sequenceNumber > lastSequenceNumber`.
+
+7. **`heartbeat` / `pong`**:
+   - Server sends `{ type: "heartbeat" }` every 30s. Client replies with `{ type: "pong" }`.
+
+---
+
+## 🏛️ 5. Component Breakdown & Core Implementation Details
+
+### A. Backend (`server/server.js`)
+* **`SessionState` Class**: Holds session metadata, active teacher socket, set of student subscriber sockets, circular `eventBuffer` (max 500 events), and `sequenceNumber` counter.
+* **Universal Stroke Extractor (`extractStrokesFromPayload`)**: Safely unwraps nested stroke formats (`points`, `path`, coordinate arrays).
+* **Async Non-Blocking Pipeline**: Translation (`processAsyncTranslation`) and disk saves (`scheduleDebouncedSave`) execute asynchronously so the main WebSocket broadcast loop is never blocked.
+
+### B. Student Web App (`app.js`)
+* **Dynamic Room Switching**: `getWebSocketUrl()` dynamically attaches `?role=student&sessionId=${currentSessionId}` allowing students to join any teacher session code (e.g. `3899`).
+* **4 Connection States**: Handles `connecting`, `live`, `reconnecting`, and `offline` visual badge states in `updateConnectionStateUI()`.
+* **Targeted DOM Micro-Updates**: `updateSingleCaptionCard(segment)` and `appendSingleCaptionCard(segment)` modify specific `#card-${segmentId}` DOM nodes directly rather than re-rendering the full feed.
+* **Stage Latency Logging**: Logs timestamps for `browserRendered` events.
+* **Recording & Export Engine (Option 4: Dual-Store Strategy)**:
+  - **Vector Event Stream**: Instant 0-second post-class playback with sharp 4K vector strokes and clickable caption scrubbing.
+  - **Export PDF Lecture Summary (`exportPDFNotes`)**: Generates printable lecture summary sheet with metadata, whiteboard canvas snapshot, preserved technical term chips, and full transcript table.
+  - **Export Subtitles (`exportWebVTTSubtitles`)**: Formats segments into standard WebVTT (`.vtt`) subtitle files for instant download.
+
+---
+
+## ⚙️ 6. Cloud Deployment Configuration (`render.yaml`)
+
+```yaml
+services:
+  - type: web
+    name: smart-classroom-backend
+    env: node
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: node server/server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ASR_PROVIDER
+        value: mock  # 'deepgram' | 'mock'
+      - key: DEEPGRAM_API_KEY
+        sync: false
 ```
 
 ---
 
-## 7. State Machine & Reconnection Gap Recovery
+## 🛠️ 7. Developer Cheat Sheet & Quick Commands
 
-```
-    ┌────────────────┐
-    │  DISCONNECTED  │
-    └───────┬────────┘
-            │ Initiate WebSocket Connection
-            ▼
-    ┌────────────────┐
-    │   CONNECTING   │
-    └───────┬────────┘
-            │ Connection Established (onopen)
-            ▼
-    ┌────────────────┐         Ping Timeout / Drop
-    │      LIVE      ├──────────────────────────────────────┐
-    └───────┬────────┘                                      │
-            │ Message Received                              │
-            ▼                                               ▼
-  [Process Event & Update]                         ┌────────────────┐
-  [Store max sequenceNumber]                       │  RECONNECTING  │
-                                                   └───────┬────────┘
-                                                           │ Re-open + Send `recover_events`
-                                                           ▼
-                                                   ┌────────────────┐
-                                                   │ RECOVERING GAP │
-                                                   └────────────────┘
-```
-
-### Reconnection Rules:
-1. **Local Storage Tracking**: Student app tracks `highestSequenceNumberReceived`.
-2. **On Reconnect**: Client connects, sends `role=student`, `sessionId`, and `lastSequenceNumber`.
-3. **Server Replay**: Server fetches missing events from ring buffer (`sequenceNumber > lastSequenceNumber`) and pushes them to client before resuming live stream.
-4. **Duplicate Prevention**: If an incoming `eventId` or `sequenceNumber` was already processed, it is safely dropped.
-
----
-
-## 8. Complete Project Directory Structure & Implementation Blueprint
-
-```
-draft 2.0/
-├── brain.md                    # System Architecture & Technical Specifications (This File)
-├── index.html                  # Student Web Application (HTML5 View & UI Shell)
-├── style.css                   # Glassmorphism Design System & Responsive UI Styles
-├── app.js                      # Student Web App Core Logic, WS Client, & DOM Mutator
-├── teacher.html                # Teacher Web App Control Panel & Whiteboard
-├── teacher.js                  # Speech Capture, Pointer Engine, & WS Broadcaster
-└── server/
-    ├── package.json            # Server Dependencies (ws, express, cors)
-    ├── server.js               # Low-Latency Realtime Gateway & Async Translation Engine
-    └── sessions.json           # Session Persistence & Recorded Lectures Store
-```
-
----
-
-## 9. Verification & Latency Benchmarking
-
-To log and benchmark performance metrics across the entire pipeline:
-```
-[LATENCY LOG] Audio Captured at Browser:   1723490015000 ms
-[LATENCY LOG] Audio/Partial Sent to WS:   1723490015015 ms (+15ms)
-[LATENCY LOG] Backend Gateway Received:   1723490015035 ms (+20ms)
-[LATENCY LOG] ASR Partial Token Emitted:  1723490015080 ms (+45ms)
-[LATENCY LOG] WebSocket Broadcast Out:     1723490015090 ms (+10ms)
-[LATENCY LOG] Student Browser Rendered:   1723490015115 ms (+25ms)
-------------------------------------------------------------------
-TOTAL END-TO-END LATENCY:                 115 ms (Target < 300 ms PASS)
-```
+* **Run Backend Locally**:
+  ```bash
+  cd server && node server.js
+  ```
+* **Run Integration Test Suite**:
+  ```bash
+  node server/test-client.js
+  ```
+* **Revert Code**:
+  ```bash
+  git reset --hard <commit-id> && git push origin main --force
+  ```

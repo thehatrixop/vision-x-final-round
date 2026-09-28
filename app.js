@@ -55,13 +55,18 @@ class SmartClassroomStudentApp {
     this.currentLecture = DEMO_SESSIONS[0];
     this.currentLanguage = "en"; // Default to English (Original)
     this.currentTime = 0;
-    this.isPlaying = true;
+    this.isPlaying = false;
     this.isTTSOn = false;
     this.playbackSpeed = 1;
     this.activeSegmentId = null;
     
     // Live Real-Time Vector Strokes Array
     this.liveStrokes = [];
+    try {
+      const saved = localStorage.getItem(`smart_room_strokes_${this.currentSessionId}`);
+      if (saved) this.liveStrokes = JSON.parse(saved);
+    } catch(e) {}
+    this.currentBuildingStroke = null;
     
     // WebSocket & Sequence State
     this.ws = null;
@@ -84,7 +89,6 @@ class SmartClassroomStudentApp {
     this.sessionSelect = document.getElementById("session-select");
     this.ttsBtn = document.getElementById("tts-btn");
     this.exportNotesBtn = document.getElementById("export-notes-btn");
-    this.exportVttBtn = document.getElementById("export-vtt-btn");
     this.speedSelect = document.getElementById("speed-select");
     this.connectionBadge = document.getElementById("connection-badge");
     this.statusText = document.getElementById("status-text");
@@ -108,10 +112,17 @@ class SmartClassroomStudentApp {
 
   initCanvasSize() {
     const parent = this.canvas.parentElement;
-    this.canvasWidth = parent.clientWidth || 800;
-    this.canvasHeight = parent.clientHeight || 500;
-    this.canvas.width = this.canvasWidth;
-    this.canvas.height = this.canvasHeight;
+    const w = parent.clientWidth || 800;
+    const h = Math.round(w * (9 / 16));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvasWidth = w;
+      this.canvasHeight = h;
+      this.canvas.width = w;
+      this.canvas.height = h;
+    } else {
+      this.canvasWidth = w;
+      this.canvasHeight = h;
+    }
   }
 
   bindEvents() {
@@ -153,19 +164,22 @@ class SmartClassroomStudentApp {
       }
     });
 
-    this.playBtn.addEventListener("click", () => this.togglePlayPause());
+    if (this.playBtn) this.playBtn.addEventListener("click", () => this.togglePlayPause());
 
-    this.timelineSlider.addEventListener("input", (e) => {
-      this.currentTime = parseFloat(e.target.value);
-      this.updateView();
-    });
+    if (this.timelineSlider) {
+      this.timelineSlider.addEventListener("input", (e) => {
+        this.currentTime = parseFloat(e.target.value);
+        this.updateView();
+      });
+    }
 
-    this.speedSelect.addEventListener("change", (e) => {
-      this.playbackSpeed = parseFloat(e.target.value);
-    });
+    if (this.speedSelect) {
+      this.speedSelect.addEventListener("change", (e) => {
+        this.playbackSpeed = parseFloat(e.target.value);
+      });
+    }
 
-    this.exportNotesBtn.addEventListener("click", () => this.exportPDFNotes());
-    this.exportVttBtn.addEventListener("click", () => this.exportWebVTTSubtitles());
+    if (this.exportNotesBtn) this.exportNotesBtn.addEventListener("click", () => this.exportPDFNotes());
   }
 
   // =========================================================================
@@ -308,8 +322,16 @@ class SmartClassroomStudentApp {
         this.handleStrokeEvent(data);
         break;
 
+      case "stroke_segment":
+        this.handleStrokeSegment(data);
+        break;
+
       case "clear_canvas":
         this.liveStrokes = [];
+        this.currentBuildingStroke = null;
+        try {
+          localStorage.removeItem(`smart_room_strokes_${this.currentSessionId}`);
+        } catch(e) {}
         this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
         this.renderGridBackground();
         this.logDebug("CANVAS", "Canvas cleared by teacher.");
@@ -364,8 +386,36 @@ class SmartClassroomStudentApp {
 
   handleStrokeEvent(data) {
     if (!data.stroke) return;
-    this.liveStrokes.push(data.stroke);
+    this.currentBuildingStroke = null;
+    if (!this.liveStrokes.some(s => s.id && s.id === data.stroke.id)) {
+      this.liveStrokes.push(data.stroke);
+      try {
+        localStorage.setItem(`smart_room_strokes_${this.currentSessionId}`, JSON.stringify(this.liveStrokes));
+      } catch(e) {}
+    }
     this.drawSingleStroke(data.stroke);
+  }
+
+  handleStrokeSegment(data) {
+    if (!data.p1 || !data.p2) return;
+    this.ctx.beginPath();
+    this.ctx.strokeStyle = data.color || "#38bdf8";
+    this.ctx.lineWidth = data.size || 3;
+    this.ctx.lineCap = "round";
+    this.ctx.lineJoin = "round";
+    this.ctx.moveTo(data.p1.x * this.canvasWidth, data.p1.y * this.canvasHeight);
+    this.ctx.lineTo(data.p2.x * this.canvasWidth, data.p2.y * this.canvasHeight);
+    this.ctx.stroke();
+
+    if (!this.currentBuildingStroke) {
+      this.currentBuildingStroke = {
+        color: data.color || "#38bdf8",
+        size: data.size || 3,
+        points: [data.p1, data.p2]
+      };
+    } else {
+      this.currentBuildingStroke.points.push(data.p2);
+    }
   }
 
   // =========================================================================
@@ -529,8 +579,8 @@ class SmartClassroomStudentApp {
     this.currentLecture = session;
     this.currentTime = 0;
     this.liveStrokes = [];
-    this.timelineSlider.max = session.durationSeconds;
-    this.totalTimeEl.textContent = this.formatTime(session.durationSeconds);
+    if (this.timelineSlider) this.timelineSlider.max = session.durationSeconds;
+    if (this.totalTimeEl) this.totalTimeEl.textContent = this.formatTime(session.durationSeconds);
     this.renderCaptions();
     this.renderWhiteboardStrokes();
   }
@@ -541,7 +591,6 @@ class SmartClassroomStudentApp {
 
     if (this.currentLecture && this.currentLecture.segments) {
       this.currentLecture.segments.forEach(segment => {
-        if (this.currentTime < segment.startTime) return;
         if (segment.strokes) {
           segment.strokes.forEach(stroke => this.drawSingleStroke(stroke));
         }
@@ -550,6 +599,10 @@ class SmartClassroomStudentApp {
 
     if (this.liveStrokes && this.liveStrokes.length > 0) {
       this.liveStrokes.forEach(stroke => this.drawSingleStroke(stroke));
+    }
+
+    if (this.currentBuildingStroke && this.currentBuildingStroke.points && this.currentBuildingStroke.points.length >= 2) {
+      this.drawSingleStroke(this.currentBuildingStroke);
     }
   }
 
@@ -592,7 +645,7 @@ class SmartClassroomStudentApp {
   // =========================================================================
   togglePlayPause() {
     this.isPlaying = !this.isPlaying;
-    this.playBtn.innerHTML = this.isPlaying ? "❚❚" : "▶";
+    if (this.playBtn) this.playBtn.innerHTML = this.isPlaying ? "❚❚" : "▶";
   }
 
   startPlaybackLoop() {
@@ -602,7 +655,7 @@ class SmartClassroomStudentApp {
         if (this.currentTime >= this.currentLecture.durationSeconds) {
           this.currentTime = this.currentLecture.durationSeconds;
           this.isPlaying = false;
-          this.playBtn.innerHTML = "▶";
+          if (this.playBtn) this.playBtn.innerHTML = "▶";
         }
         this.updateView();
       }
@@ -610,8 +663,8 @@ class SmartClassroomStudentApp {
   }
 
   updateView() {
-    this.timelineSlider.value = this.currentTime;
-    this.currentTimeEl.textContent = this.formatTime(this.currentTime);
+    if (this.timelineSlider) this.timelineSlider.value = this.currentTime;
+    if (this.currentTimeEl) this.currentTimeEl.textContent = this.formatTime(this.currentTime);
 
     const activeSeg = this.currentLecture.segments.find(
       s => this.currentTime >= s.startTime && this.currentTime <= s.endTime
@@ -662,36 +715,14 @@ class SmartClassroomStudentApp {
     printWindow.print();
   }
 
-  exportWebVTTSubtitles() {
-    let vtt = "WEBVTT\n\n";
-    this.currentLecture.segments.forEach((s, i) => {
-      const start = this.formatVTTTime(s.startTime);
-      const end = this.formatVTTTime(s.endTime || s.startTime + 5);
-      vtt += `${i + 1}\n${start} --> ${end}\n${s.englishText}\n\n`;
-    });
-
-    const blob = new Blob([vtt], { type: "text/vtt" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${this.currentLecture.id}-subtitles.vtt`;
-    a.click();
-  }
-
   formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
 
-  formatVTTTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 1000);
-    return `00:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
-  }
-
   logDebug(tag, msg) {
+    if (!this.debugConsole) return;
     const line = document.createElement("div");
     line.className = "debug-log-line";
     line.textContent = `[${new Date().toLocaleTimeString()}] [${tag}] ${msg}`;

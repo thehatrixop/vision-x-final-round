@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎓 Student Portal — Smart Classroom 2.0</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .user-profile-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 12px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #38bdf8;
+    }
+    .btn-logout {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #f43f5e;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-logout:hover {
+      background: #f43f5e;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header & Navigation Bar -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🎓</div>
+      <div>
+        <div class="brand-title">Smart Classroom 2.0</div>
+        <div class="brand-sub">Student Live Dashboard & Classroom Stream</div>
+      </div>
+    </div>
+
+    <div class="nav-controls">
+      <!-- Session Room Selector -->
+      <div class="select-wrapper">
+        <select id="session-select">
+          <option value="cs101-recursion">CS101: Recursion & Binary Search Trees</option>
+          <option value="ee201-circuits">EE201: Operational Amplifiers & Feedback</option>
+          <option value="math301-calculus">MATH301: Differential Equations</option>
+        </select>
+      </div>
+
+      <!-- Language Selector -->
+      <div class="select-wrapper">
+        <select id="lang-select">
+          <option value="hi">🇮🇳 Hindi (हिंदी)</option>
+          <option value="ar">🇸🇦 Arabic (العربية)</option>
+          <option value="fr">🇫🇷 French (Français)</option>
+          <option value="es">🇪🇸 Spanish (Español)</option>
+          <option value="bn">🇧🇩 Bengali (বাংলা)</option>
+          <option value="de">🇩🇪 German (Deutsch)</option>
+          <option value="en" selected>🇬🇧 English (Original)</option>
+        </select>
+      </div>
+
+      <!-- Action Buttons -->
+      <button id="tts-btn" class="btn-control" title="Toggle Text-to-Speech">🔊 TTS Off</button>
+      <button id="export-notes-btn" class="btn-control">📝 Export Notes</button>
+
+      <!-- Connection Status Badge -->
+      <div id="connection-badge" class="status-badge connecting">
+        <span class="pulse-dot"></span>
+        <span id="status-text">CONNECTING...</span>
+      </div>
+
+      <!-- User Profile Badge & Logout -->
+      <div id="user-badge" class="user-profile-badge">
+        <span>👨‍🎓</span>
+        <span id="student-name">Student</span>
+      </div>
+      <button class="btn-logout" onclick="logoutStudent()">Logout</button>
+    </div>
+  </header>
+
+  <!-- Main Split-Screen Workspace Grid -->
+  <main class="workspace-grid">
+    
+    <!-- Left Column: Interactive Whiteboard Canvas -->
+    <section class="panel-card">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🎨</span> Interactive Vector Whiteboard
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-muted);">
+          60 FPS Stream Engine
+        </div>
+      </div>
+
+      <div class="canvas-wrapper">
+        <div class="canvas-overlay-badge" id="canvas-status">🔴 LIVE SYNC</div>
+        <canvas id="whiteboard-canvas"></canvas>
+      </div>
+    </section>
+
+    <!-- Right Column: Streaming Captions -->
+    <section class="panel-card">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🗣️</span> Live Streaming Captions & Translation
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-blue);">
+          Real-Time Multilingual NMT Engine
+        </div>
+      </div>
+
+      <!-- Live Caption Feed -->
+      <div id="caption-feed" class="caption-feed">
+        <!-- Caption cards generated dynamically in app.js -->
+      </div>
+    </section>
+
+  </main>
+
+
+
+  <script src="app.js"></script>
+  <script>
+    // Initialize student profile and auth check
+    document.addEventListener('DOMContentLoaded', () => {
+      const stored = localStorage.getItem('smart_user');
+      if (stored) {
+        try {
+          const u = JSON.parse(stored);
+          document.getElementById('student-name').innerText = u.name || u.email || 'Student';
+        } catch (e) {}
+      } else {
+        document.getElementById('student-name').innerText = 'Student (Guest)';
+      }
+    });
+
+    function logoutStudent() {
+      localStorage.removeItem('smart_user');
+      window.location.href = '/';
+    }
+  </script>
+</body>
+</html>

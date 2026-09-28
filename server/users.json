@@ -1,0 +1,18 @@
+[
+  {
+    "id": "usr-1",
+    "name": "Demo Student",
+    "email": "student@csjmu.ac.in",
+    "password": "password123",
+    "role": "student",
+    "createdAt": 1723490000000
+  },
+  {
+    "id": "usr-2",
+    "name": "Prof. A. Sharma",
+    "email": "teacher@csjmu.ac.in",
+    "password": "password123",
+    "role": "teacher",
+    "createdAt": 1723490000000
+  }
+]

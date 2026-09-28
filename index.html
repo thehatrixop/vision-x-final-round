@@ -3,120 +3,537 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🎓 Smart Classroom 2.0 — Live Low-Latency Learning Platform</title>
-  <link rel="stylesheet" href="style.css">
+  <title>🎓 Smart Classroom 2.0 — Live Learning Platform & Portal</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    :root {
+      --bg-dark: #060911;
+      --panel-bg: rgba(16, 23, 42, 0.75);
+      --accent-blue: #38bdf8;
+      --accent-purple: #8b5cf6;
+      --accent-emerald: #10b981;
+      --accent-rose: #f43f5e;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: radial-gradient(circle at 50% 0%, #0f172a 0%, var(--bg-dark) 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow-x: hidden;
+    }
+
+    /* Subtle background mesh animation */
+    body::before {
+      content: '';
+      position: absolute;
+      top: -10%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, rgba(139, 92, 246, 0.08) 50%, transparent 70%);
+      filter: blur(80px);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 1100px;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 40px;
+      align-items: center;
+    }
+
+    @media (max-width: 900px) {
+      .container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Left Hero Branding Section */
+    .hero-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 20px;
+      color: var(--accent-blue);
+      font-size: 0.85rem;
+      font-weight: 600;
+      width: fit-content;
+    }
+
+    .hero-title {
+      font-size: 2.75rem;
+      font-weight: 800;
+      line-height: 1.15;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-desc {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .feature-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 10px;
+    }
+
+    .feature-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.95rem;
+      color: #e2e8f0;
+    }
+
+    .feature-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-blue);
+      font-size: 1rem;
+    }
+
+    /* Right Auth Box Glassmorphism Card */
+    .auth-card {
+      background: var(--panel-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Role Selector Header Tabs */
+    .role-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: #0b1120;
+      padding: 4px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .role-btn {
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.25 ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .role-btn.active {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(139, 92, 246, 0.2));
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Sub Tabs (Login / Signup) */
+    .mode-tabs {
+      display: flex;
+      gap: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 10px;
+    }
+
+    .mode-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding-bottom: 4px;
+      position: relative;
+      transition: color 0.2s ease;
+    }
+
+    .mode-btn.active {
+      color: var(--accent-blue);
+    }
+
+    .mode-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -11px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent-blue);
+      border-radius: 2px;
+    }
+
+    /* Form Inputs */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+
+    input {
+      width: 100%;
+      background: #090e1a;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #fff;
+      font-size: 0.92rem;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+    }
+
+    .code-input-wrapper {
+      position: relative;
+    }
+
+    .code-badge {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .help-text {
+      font-size: 0.76rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: linear-gradient(135deg, #38bdf8, #2563eb);
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn-submit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.5);
+    }
+
+    /* Alert Banner */
+    .alert-box {
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 0.84rem;
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .alert-error {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #f43f5e;
+    }
+
+    .alert-success {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #10b981;
+    }
+
+    .demo-credentials {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px dashed rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+  </style>
 </head>
 <body>
 
-  <!-- Header & Navigation Bar -->
-  <header>
-    <div class="brand">
-      <div class="brand-icon">🎓</div>
-      <div>
-        <div class="brand-title">Smart Classroom 2.0</div>
-        <div class="brand-sub">Real-Time Low-Latency Streaming Platform</div>
+  <div class="container">
+    <!-- Left Column: Platform Showcase -->
+    <div class="hero-section">
+      <div class="brand-pill">
+        <span>⚡</span> Smart Classroom 2.0 Platform
+      </div>
+
+      <h1 class="hero-title">
+        Ultra Low-Latency Live Learning Platform
+      </h1>
+
+      <p class="hero-desc">
+        Experience real-time interactive lectures with YouTube-style instant captions (&lt;150ms), 60 FPS vector whiteboard synchronization, and multilingual translation.
+      </p>
+
+      <div class="feature-list">
+        <div class="feature-item">
+          <div class="feature-icon">🎙️</div>
+          <div><strong>Sub-150ms Partial Captions</strong> — Words stream in real-time as spoken</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">🎨</div>
+          <div><strong>60 FPS Interactive Whiteboard</strong> — Vector stroke synchronization</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">🌐</div>
+          <div><strong>Multilingual NMT Engine</strong> — Instant translation with term preservation</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">🔑</div>
+          <div><strong>Role-Based Access Control</strong> — Secure student & faculty authentication</div>
+        </div>
       </div>
     </div>
 
-    <div class="nav-controls">
-      <!-- Session Room Selector -->
-      <div class="select-wrapper">
-        <select id="session-select">
-          <option value="cs101-recursion">CS101: Recursion & Binary Search Trees</option>
-          <option value="ee201-circuits">EE201: Operational Amplifiers & Feedback</option>
-          <option value="math301-calculus">MATH301: Differential Equations</option>
-        </select>
+    <!-- Right Column: Portal Login / Signup Glass Card -->
+    <div class="auth-card">
+      <!-- Role Tabs -->
+      <div class="role-tabs">
+        <button class="role-btn active" id="tab-role-student" onclick="switchRole('student')">
+          <span>🎓</span> Student Portal
+        </button>
+        <button class="role-btn" id="tab-role-teacher" onclick="switchRole('teacher')">
+          <span>👨‍🏫</span> Teacher Portal
+        </button>
       </div>
 
-      <!-- Language Selector -->
-      <div class="select-wrapper">
-        <select id="lang-select">
-          <option value="hi">🇮🇳 Hindi (हिंदी)</option>
-          <option value="ar">🇸🇦 Arabic (العربية)</option>
-          <option value="fr">🇫🇷 French (Français)</option>
-          <option value="es">🇪🇸 Spanish (Español)</option>
-          <option value="bn">🇧🇩 Bengali (বাংলা)</option>
-          <option value="de">🇩🇪 German (Deutsch)</option>
-          <option value="en" selected>🇬🇧 English (Original)</option>
-        </select>
+      <!-- Mode Tabs (Login vs Signup) -->
+      <div class="mode-tabs">
+        <button class="mode-btn active" id="tab-mode-login" onclick="switchMode('login')">Log In</button>
+        <button class="mode-btn" id="tab-mode-signup" onclick="switchMode('signup')">Sign Up (1-Time Code)</button>
       </div>
 
-      <!-- Action Buttons -->
-      <button id="tts-btn" class="btn-control" title="Toggle Text-to-Speech">🔊 TTS Off</button>
-      <button id="export-notes-btn" class="btn-control">📝 Export Notes</button>
-      <button id="export-vtt-btn" class="btn-control">📜 Download Subtitles</button>
+      <!-- Alert Box -->
+      <div id="alert-box" class="alert-box"></div>
 
-      <!-- Connection Status Badge -->
-      <div id="connection-badge" class="status-badge connecting">
-        <span class="pulse-dot"></span>
-        <span id="status-text">CONNECTING...</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- Main Split-Screen Workspace Grid -->
-  <main class="workspace-grid">
-    
-    <!-- Left Column: Interactive Whiteboard Canvas -->
-    <section class="panel-card">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span>🎨</span> Interactive Vector Whiteboard
+      <!-- Auth Form -->
+      <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+        <!-- Name Field (Only for Signup) -->
+        <div class="form-group" id="group-name" style="display: none;">
+          <label>Full Name</label>
+          <input type="text" id="input-name" placeholder="Enter your full name">
         </div>
-        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-muted);">
-          60 FPS Stream Engine
+
+        <!-- Email Field -->
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" id="input-email" placeholder="name@domain.edu" required>
         </div>
-      </div>
 
-      <div class="canvas-wrapper">
-        <div class="canvas-overlay-badge" id="canvas-status">🔴 LIVE SYNC</div>
-        <canvas id="whiteboard-canvas"></canvas>
-      </div>
-    </section>
-
-    <!-- Right Column: YouTube-Style Streaming Captions -->
-    <section class="panel-card">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span>🗣️</span> Live Streaming Captions & Translation
+        <!-- Password Field -->
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="input-password" placeholder="••••••••" required>
         </div>
-        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-blue);">
-          Real-Time Multilingual NMT Engine
+
+        <!-- Secret Access Code Field (Only for Signup) -->
+        <div class="form-group" id="group-code" style="display: none;">
+          <label id="label-code">One-Time Student Access Code</label>
+          <div class="code-input-wrapper">
+            <input type="text" id="input-code" placeholder="Enter secret code (e.g. CSJMU)">
+            <span class="code-badge" id="badge-code">CSJMU</span>
+          </div>
+          <div class="help-text" id="help-code">
+            🔒 Required ONLY for first-time registration. Existing accounts log in directly.
+          </div>
         </div>
+
+        <button type="submit" class="btn-submit" id="btn-submit-text">Log In as Student</button>
+      </form>
+
+      <!-- Quick Demo Info -->
+      <div class="demo-credentials">
+        <div><strong>🔑 Quick Demo Access Codes:</strong></div>
+        <div>• 🎓 Student 1-Time Signup Code: <code style="color:#38bdf8;">CSJMU</code></div>
+        <div>• 👨‍🏫 Teacher 1-Time Signup Code: <code style="color:#10b981;">faculty 2026</code></div>
       </div>
-
-      <!-- Live Caption Feed -->
-      <div id="caption-feed" class="caption-feed">
-        <!-- Caption cards generated dynamically in app.js -->
-      </div>
-    </section>
-
-  </main>
-
-  <!-- Timeline Playback & Scrub Bar -->
-  <div class="timeline-bar">
-    <button id="play-btn" class="btn-control active">❚❚</button>
-    <div class="time-display">
-      <span id="current-time">00:00</span> / <span id="total-time">00:45</span>
-    </div>
-    <div class="slider-container">
-      <input type="range" id="timeline-slider" min="0" max="45" value="0" step="0.1">
-    </div>
-    <div class="select-wrapper">
-      <select id="speed-select">
-        <option value="0.5">0.5x</option>
-        <option value="1" selected>1.0x</option>
-        <option value="1.5">1.5x</option>
-        <option value="2">2.0x</option>
-      </select>
     </div>
   </div>
 
-  <!-- Real-Time Debug Console -->
-  <div id="debug-console" class="debug-console">
-    <div class="debug-log-line">[SYSTEM] Smart Classroom 2.0 Client Initialized.</div>
-  </div>
+  <script>
+    let currentRole = 'student'; // 'student' | 'teacher'
+    let currentMode = 'login';   // 'login' | 'signup'
 
-  <script src="app.js"></script>
+    function switchRole(role) {
+      currentRole = role;
+      document.getElementById('tab-role-student').classList.toggle('active', role === 'student');
+      document.getElementById('tab-role-teacher').classList.toggle('active', role === 'teacher');
+      updateFormUI();
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      document.getElementById('tab-mode-login').classList.toggle('active', mode === 'login');
+      document.getElementById('tab-mode-signup').classList.toggle('active', mode === 'signup');
+      updateFormUI();
+    }
+
+    function updateFormUI() {
+      hideAlert();
+      const isSignup = currentMode === 'signup';
+      const isStudent = currentRole === 'student';
+
+      // Toggle name and code fields
+      document.getElementById('group-name').style.display = isSignup ? 'flex' : 'none';
+      document.getElementById('group-code').style.display = isSignup ? 'flex' : 'none';
+
+      if (isSignup) {
+        if (isStudent) {
+          document.getElementById('label-code').innerText = 'One-Time Student Access Code';
+          document.getElementById('input-code').placeholder = 'Enter student code (CSJMU)';
+          document.getElementById('badge-code').innerText = 'CSJMU';
+          document.getElementById('btn-submit-text').innerText = 'Register Student Account';
+        } else {
+          document.getElementById('label-code').innerText = 'One-Time Faculty Access Code';
+          document.getElementById('input-code').placeholder = 'Enter teacher code (faculty 2026)';
+          document.getElementById('badge-code').innerText = 'faculty 2026';
+          document.getElementById('btn-submit-text').innerText = 'Register Faculty Account';
+        }
+      } else {
+        document.getElementById('btn-submit-text').innerText = isStudent ? 'Log In as Student' : 'Log In as Teacher';
+      }
+    }
+
+    function showAlert(msg, isError = true) {
+      const box = document.getElementById('alert-box');
+      box.className = `alert-box ${isError ? 'alert-error' : 'alert-success'}`;
+      box.innerText = msg;
+      box.style.display = 'flex';
+    }
+
+    function hideAlert() {
+      const box = document.getElementById('alert-box');
+      box.style.display = 'none';
+    }
+
+    async function handleAuthSubmit(event) {
+      event.preventDefault();
+      hideAlert();
+
+      const name = document.getElementById('input-name').value;
+      const email = document.getElementById('input-email').value;
+      const password = document.getElementById('input-password').value;
+      const code = document.getElementById('input-code').value;
+
+      const endpoint = currentMode === 'signup' ? '/api/signup' : '/api/login';
+      const payload = {
+        email,
+        password,
+        role: currentRole
+      };
+
+      if (currentMode === 'signup') {
+        payload.name = name;
+        payload.code = code;
+      }
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          showAlert(data.message || 'Authentication failed. Please check your credentials.', true);
+          return;
+        }
+
+        showAlert(data.message || 'Success! Redirecting...', false);
+
+        // Store user in localStorage
+        if (data.user) {
+          localStorage.setItem('smart_user', JSON.stringify(data.user));
+        }
+
+        setTimeout(() => {
+          window.location.href = data.redirectUrl || (currentRole === 'teacher' ? '/teacher' : '/student');
+        }, 600);
+
+      } catch (err) {
+        showAlert('Network or server connection error. Please try again.', true);
+      }
+    }
+  </script>
 </body>
 </html>
